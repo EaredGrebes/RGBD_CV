@@ -24,6 +24,6 @@ Beyond code snipets copied from the following sources, everything here is origin
 
 - Intel Realsense C++ API: https://github.com/IntelRealSense/librealsense
 - LearnOpenGL: https://github.com/JoeyDeVries/LearnOpenGL
-- Fast 3x3 SVD on the GPU: https://github.com/ericjang/svd3
+- Fast 3x3 SVD on the GPU (I included the entire file in my src): https://github.com/ericjang/svd3
 
 
