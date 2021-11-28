@@ -1,6 +1,6 @@
 # RGBD_CV
 
-The goal of this project was to learn about processing and visualizing color and depth data using CUDA and C++.  These were chosen for speed purposes. The sensor being used is a Intel Realsense D455.  
+The goal of this project was to learn about processing and visualizing color and depth data in real-time using CUDA and C++.  The sensor being used is a Intel Realsense D455.  Disclaimer: this code is not a prototype for production, it is exploratory, meant for learning, and changing constantly.  
 
 The algorithm uses the GPU to:
 - kalman filter the depth measurements (the depth sensor has some interesting wavy distortion pattern)
