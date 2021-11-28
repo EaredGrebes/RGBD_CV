@@ -129,5 +129,5 @@ build/objects/src/main.o: src/main.cpp \
  /usr/local/cuda-11.4/samples/common/inc/exception.h \
  /usr/local/cuda-11.4/samples/common/inc/helper_image.h \
  /usr/local/cuda-11.4/samples/common/inc/helper_timer.h \
- src/shaderProgramGenerator.h src/realsenseHelper.h \
- src/glUserInputHelper.h src/cuda_processing_RGBD.h
+ include/shaderProgramGenerator.h include/realsenseHelper.h \
+ include/glUserInputHelper.h include/cuda_processing_RGBD.h

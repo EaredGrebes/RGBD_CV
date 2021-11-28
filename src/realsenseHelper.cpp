@@ -155,7 +155,6 @@ void realsenseHelper::computePixelDistortionaMap() {
             bool linearProj = false;
             if (linearProj) {
 
-
                 float xScaled = (float(ii) - depthIntrinsics.ppx) / depthIntrinsics.fx;
                 float yScaled = (float(jj) - depthIntrinsics.ppy) / depthIntrinsics.fy;
 

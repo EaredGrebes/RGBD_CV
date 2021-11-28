@@ -1,5 +1,5 @@
 build/objects/src/realsenseHelper.o: src/realsenseHelper.cpp \
- src/realsenseHelper.h /usr/local/include/opencv4/opencv2/core.hpp \
+ include/realsenseHelper.h /usr/local/include/opencv4/opencv2/core.hpp \
  /usr/local/include/opencv4/opencv2/core/cvdef.h \
  /usr/local/include/opencv4/opencv2/core/version.hpp \
  /usr/local/include/opencv4/opencv2/core/hal/interface.h \
