@@ -20,14 +20,10 @@ Software requirements:
 - OpenGL 4.6.0
 - OpenCV with GPU libraries compiled
 
-Beyond code snipets copied from the following sources, everything here is origonal.
-Intel Realsense C++ API:
-https://github.com/IntelRealSense/librealsense
+Beyond code snipets copied from the following sources, everything here is original.
 
-LearnOpenGL was a great resource for OpenGL:
-https://github.com/JoeyDeVries/LearnOpenGL
-
-Fast 3x3 SVD on the GPU:
-https://github.com/ericjang/svd3
+- Intel Realsense C++ API: https://github.com/IntelRealSense/librealsense
+- LearnOpenGL: https://github.com/JoeyDeVries/LearnOpenGL
+- Fast 3x3 SVD on the GPU: https://github.com/ericjang/svd3
 
 
