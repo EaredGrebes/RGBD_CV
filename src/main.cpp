@@ -213,7 +213,7 @@ void runCudaDisplay(GLFWwindow* window)
             checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&colorPointsPtr, &num_bytes, cuda_colorVB_resource));
 
             // map processed data to the vertex and color arrays
-            cudaRGBD.computeVertexAndColorPoints(vertexPointsPtr, colorPointsPtr);
+            cudaRGBD.runCudaProcessing(vertexPointsPtr, colorPointsPtr);
 
             checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_3dPointVB_resource, 0));
             checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_colorVB_resource, 0));
@@ -266,18 +266,13 @@ void runCudaDisplay(GLFWwindow* window)
 
             // use openCV to display additional useful images of the data
             cudaRGBD.colorInDepthMat.download(colorInDepthMat);
-            cudaRGBD.residualMat.download(depthTransformed);
             cudaRGBD.colorInDepthMatTransformed.download(colorInDepthMatTransformed);
             cudaRGBD.depthMatEdges.download(likelihoodMat);
             cudaRGBD.depthMatVar_mm2.download(depthMatVar_mm2);
-            cudaRGBD.resMaskMat.download(convergedMat);
 
             double min, max;
             cv::minMaxLoc(depthMatVar_mm2, &min, &max);
             float mean = cv::mean( depthMatVar_mm2 )[0];
-
-            std::cout << "sigma min mm: " << sqrt(min) << std::endl;
-            //std::cout << "sigma max mm: " << sqrt(max) << std::endl;
 
             cv::Mat tmp1 = depthMatVar_mm2 * 255 / 2000;
             tmp1.convertTo(depthVarMat_grey, CV_8U);
@@ -298,46 +293,11 @@ void runCudaDisplay(GLFWwindow* window)
             cv::imshow("depth var mat", depthVarMat_grey);
             cv::imshow("residual mat", tmp4);
 
-            // histogram analysis
-            int histSize = 60;
-            float range[] = { -40, 40}; //the upper boundary is exclusive
-            const float* histRange = { range };
-            bool uniform = true;
-            bool accumulate = false;
-            cv::Mat residualHist;
-
-            cv::Scalar residualMean = cv::mean(depthTransformed, convergedMat);
-            std::cout << "residual mean: " << residualMean[0] << std::endl;
-
-            cv::calcHist( &depthTransformed, 1, 0, convergedMat, residualHist, 1, &histSize, &histRange, uniform, accumulate );
-
-            int hist_w = 512;
-            int hist_h = 400;
-            int bin_w = cvRound( (double) hist_w/histSize );
-
-            cv::Mat histImage( hist_h, hist_w, CV_8UC3, cv::Scalar( 0,0,0) );
-            cv::normalize(residualHist, residualHist, 0, histImage.rows, cv::NORM_MINMAX, -1, cv::Mat() );
-
-            for( int ii = 1; ii < histSize; ii++ )
-            {
-                cv::line( histImage, 
-                          cv::Point( bin_w*(ii-1), hist_h - cvRound(residualHist.at<float>(ii-1)) ),
-                          cv::Point( bin_w*(ii),   hist_h - cvRound(residualHist.at<float>(ii)) ),
-                          cv::Scalar( 255, 0, 255), 
-                          2, 
-                          8, 
-                          0);
-            }
-
-            cv::imshow("calcHist Demo", histImage );
-
-
             // for some reason opecv needs this
             int key = cv::waitKey(20);
-            if (key == 'q')
-            {
-              std::cout << "q key is pressed by the user. Stopping the video" << std::endl;
-              break;
+            if (key == 'q') {
+                std::cout << "q key is pressed by the user. Stopping the video" << std::endl;
+                break;
             }
         }
     }
@@ -359,8 +319,8 @@ bool initGL(GLuint &shaderProgram, GLFWwindow* &window)
 {
     // start GL context and O/S window using the GLFW helper library
     if (!glfwInit()) {
-    fprintf(stderr, "ERROR: could not start GLFW3\n");
-    return 1;
+        fprintf(stderr, "ERROR: could not start GLFW3\n");
+        return 1;
     } 
 
     // uncomment these lines if on Apple OS X
@@ -371,9 +331,9 @@ bool initGL(GLuint &shaderProgram, GLFWwindow* &window)
     window = glfwCreateWindow(meshWidth, meshHeight, "Ocean V3", NULL, NULL);
 
     if (!window) {
-    fprintf(stderr, "ERROR: could not open window with GLFW3\n");
-    glfwTerminate();
-    return 1;
+        fprintf(stderr, "ERROR: could not open window with GLFW3\n");
+        glfwTerminate();
+        return 1;
     }
 
     glfwMakeContextCurrent(window);

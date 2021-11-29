@@ -365,7 +365,6 @@ __global__ void kalmanFilterKernel( cv::cuda::PtrStepSz<int> convergedMatPtr,  /
                                     unsigned int width,
                                     unsigned int height)
 {
-
     unsigned int iCol = blockIdx.x*blockDim.x + threadIdx.x;
     unsigned int iRow = blockIdx.y*blockDim.y + threadIdx.y;  
 
@@ -423,13 +422,12 @@ __global__ void depthToPositionKernel(cv::cuda::PtrStepSz<float3> posMatPtr_m,  
     float y_m = pixelYPosMatPtr(iRow, iCol) * z_m;
 
     posMatPtr_m(iRow, iCol) = make_float3(x_m, y_m, z_m);
-
 }
 
 
 //-----------------------------------------------------------------------------
 // for realsense processing
-__global__ void transformPositionToDepthKernel(cv::cuda::PtrStepSz<int> depthMatRotatedPtr_mm,   // outputs
+__global__ void transformPositionToDepthKernel(cv::cuda::PtrStepSz<int> depthMatRotatedPtr_mm,  // outputs
                                             cv::cuda::PtrStepSz<int> depthShadedPtr_mm,
                                             cv::cuda::PtrStepSz<uchar> shadingMaskMatPtr,
                                             cv::cuda::PtrStepSz<int> xIdNewMatPtr,
@@ -614,136 +612,7 @@ __global__ void mapToOpenGLKernel(float3 *pointsOut,                        // o
     // openGL and openCV have different RGB orders
     pointsOut[iRow * width + iCol] = point_m;
     colorsOut[iRow * width + iCol] = make_uchar3(color.z, color.y, color.x);
-}
-
-
-//-----------------------------------------------------------------------------
-// this computes the matricies that need to have all their columns summed in order
-// to solve the problem Ax = b
-__global__ void computeLeastSquaresMatKernel( cv::cuda::PtrStepSz<float>  Bmat,            // outputs
-                                              cv::cuda::PtrStepSz<float>  Dmat,
-                                              cv::cuda::PtrStepSz<float>  residualMat,
-                                              cv::cuda::PtrStepSz<uchar>  resMaskMat,
-                                              cv::cuda::PtrStepSz<int>    depthMatEst_mm,  // inputs 
-                                              cv::cuda::PtrStepSz<int>    depthMatMeas_mm,   
-                                              cv::cuda::PtrStepSz<float3> normalMat,                            
-                                              cv::cuda::PtrStepSz<float>  depthMatVar_mm2,     
-                                              cv::cuda::PtrStepSz<float>  pixelXPosMat,
-                                              cv::cuda::PtrStepSz<float>  pixelYPosMat,
-                                              cv::cuda::PtrStepSz<int>    convergedMat,
-                                              unsigned int width,
-                                              unsigned int height){
-
-    unsigned int iCol = blockIdx.x*blockDim.x + threadIdx.x;
-    unsigned int iRow = blockIdx.y*blockDim.y + threadIdx.y;
-
-    unsigned int idx = iRow * width + iCol;
-
-    float3 p = normalize(make_float3(pixelXPosMat(iRow,iCol), pixelYPosMat(iRow, iCol), 1.0f));
-    float3 n = normalMat(iRow, iCol);
-
-    float d1 = __int2float_rn(depthMatEst_mm(iRow, iCol)) * 0.001;
-    float d2 = __int2float_rn(depthMatMeas_mm(iRow, iCol)) * 0.001;
-
-    float npDot = dot(n, p);
-
-    resMaskMat(iRow, iCol) = 0;
-
-    if ( (d2 > 0.01) &&
-         (npDot > angleThresh) && 
-         (convergedMat(iRow, iCol) == 1) ) 
-    {
-        resMaskMat(iRow, iCol) = 1;
-
-        float row[6] = { n.x, 
-                         n.y, 
-                         n.z,
-                        -d2*(n.y*p.z - n.z*p.y),
-                        -d2*(n.z*p.x - n.x*p.z),
-                        -d2*(n.x*p.y - n.y*p.x)};
-
-        float b = npDot * (d1 - d2);                        
-                      
-        Bmat(idx, 0)  = row[0]*row[0];
-        Bmat(idx, 1)  = row[0]*row[1];
-        Bmat(idx, 2)  = row[0]*row[2];
-        Bmat(idx, 3)  = row[0]*row[3];
-        Bmat(idx, 4)  = row[0]*row[4];
-        Bmat(idx, 5)  = row[0]*row[5];
-        Bmat(idx, 6)  = row[1]*row[1];
-        Bmat(idx, 7)  = row[1]*row[2];
-        Bmat(idx, 8)  = row[1]*row[3];
-        Bmat(idx, 9)  = row[1]*row[4];
-        Bmat(idx, 10) = row[1]*row[5];
-        Bmat(idx, 11) = row[2]*row[2];
-        Bmat(idx, 12) = row[2]*row[3];
-        Bmat(idx, 13) = row[2]*row[4];
-        Bmat(idx, 14) = row[2]*row[5];
-        Bmat(idx, 15) = row[3]*row[3];
-        Bmat(idx, 16) = row[3]*row[4];
-        Bmat(idx, 17) = row[3]*row[5];
-        Bmat(idx, 18) = row[4]*row[4];
-        Bmat(idx, 19) = row[4]*row[5];
-        Bmat(idx, 20) = row[5]*row[5];
-
-        Dmat(idx, 0) = row[0] * b;
-        Dmat(idx, 1) = row[1] * b;
-        Dmat(idx, 2) = row[2] * b;
-        Dmat(idx, 3) = row[3] * b;
-        Dmat(idx, 4) = row[4] * b;
-        Dmat(idx, 5) = row[5] * b;
-
-        residualMat(iRow, iCol) = b;
-
-    }
-}  
-
-
-//-----------------------------------------------------------------------------
-__global__ void tallMatrixBlockReduction_8r(cv::cuda::PtrStepSz<float> reducedBmat,  // outputs
-                                            cv::cuda::PtrStepSz<float> reducedDmat,
-                                            cv::cuda::PtrStepSz<float> Bmat,         // inputs
-                                            cv::cuda::PtrStepSz<float> Dmat,
-                                            unsigned int matHeight){
-
-      int iRow = blockIdx.x * blockDim.x + threadIdx.x;
-
-      if (iRow < matHeight) {
-
-        int idxB = iRow * 8;
-
-        reducedBmat(iRow, 0) = Bmat(idxB,  0) + Bmat(idxB+1,  0) + Bmat(idxB+2,  0) + Bmat(idxB+3,  0) + Bmat(idxB+4,  0) + Bmat(idxB+5,  0) + Bmat(idxB+6,  0) + Bmat(idxB+7,  0);
-        reducedBmat(iRow, 1) = Bmat(idxB,  1) + Bmat(idxB+1,  1) + Bmat(idxB+2,  1) + Bmat(idxB+3,  1) + Bmat(idxB+4,  1) + Bmat(idxB+5,  1) + Bmat(idxB+6,  1) + Bmat(idxB+7,  1);
-        reducedBmat(iRow, 2) = Bmat(idxB,  2) + Bmat(idxB+1,  2) + Bmat(idxB+2,  2) + Bmat(idxB+3,  2) + Bmat(idxB+4,  2) + Bmat(idxB+5,  2) + Bmat(idxB+6,  2) + Bmat(idxB+7,  2);
-        reducedBmat(iRow, 3) = Bmat(idxB,  3) + Bmat(idxB+1,  3) + Bmat(idxB+2,  3) + Bmat(idxB+3,  3) + Bmat(idxB+4,  3) + Bmat(idxB+5,  3) + Bmat(idxB+6,  3) + Bmat(idxB+7,  3);
-        reducedBmat(iRow, 4) = Bmat(idxB,  4) + Bmat(idxB+1,  4) + Bmat(idxB+2,  4) + Bmat(idxB+3,  4) + Bmat(idxB+4,  4) + Bmat(idxB+5,  4) + Bmat(idxB+6,  4) + Bmat(idxB+7,  4);
-        reducedBmat(iRow, 5) = Bmat(idxB,  5) + Bmat(idxB+1,  5) + Bmat(idxB+2,  5) + Bmat(idxB+3,  5) + Bmat(idxB+4,  5) + Bmat(idxB+5,  5) + Bmat(idxB+6,  5) + Bmat(idxB+7,  5);
-        reducedBmat(iRow, 6) = Bmat(idxB,  6) + Bmat(idxB+1,  6) + Bmat(idxB+2,  6) + Bmat(idxB+3,  6) + Bmat(idxB+4,  6) + Bmat(idxB+5,  6) + Bmat(idxB+6,  6) + Bmat(idxB+7,  6);
-        reducedBmat(iRow, 7) = Bmat(idxB,  7) + Bmat(idxB+1,  7) + Bmat(idxB+2,  7) + Bmat(idxB+3,  7) + Bmat(idxB+4,  7) + Bmat(idxB+5,  7) + Bmat(idxB+6,  7) + Bmat(idxB+7,  7);
-        reducedBmat(iRow, 8) = Bmat(idxB,  8) + Bmat(idxB+1,  8) + Bmat(idxB+2,  8) + Bmat(idxB+3,  8) + Bmat(idxB+4,  8) + Bmat(idxB+5,  8) + Bmat(idxB+6,  8) + Bmat(idxB+7,  8);
-        reducedBmat(iRow, 9) = Bmat(idxB,  9) + Bmat(idxB+1,  9) + Bmat(idxB+2,  9) + Bmat(idxB+3,  9) + Bmat(idxB+4,  9) + Bmat(idxB+5,  9) + Bmat(idxB+6,  9) + Bmat(idxB+7,  9);
-        reducedBmat(iRow,10) = Bmat(idxB, 10) + Bmat(idxB+1, 10) + Bmat(idxB+2, 10) + Bmat(idxB+3, 10) + Bmat(idxB+4, 10) + Bmat(idxB+5, 10) + Bmat(idxB+6, 10) + Bmat(idxB+7, 10);
-        reducedBmat(iRow,11) = Bmat(idxB, 11) + Bmat(idxB+1, 11) + Bmat(idxB+2, 11) + Bmat(idxB+3, 11) + Bmat(idxB+4, 11) + Bmat(idxB+5, 11) + Bmat(idxB+6, 11) + Bmat(idxB+7, 11);
-        reducedBmat(iRow,12) = Bmat(idxB, 12) + Bmat(idxB+1, 12) + Bmat(idxB+2, 12) + Bmat(idxB+3, 12) + Bmat(idxB+4, 12) + Bmat(idxB+5, 12) + Bmat(idxB+6, 12) + Bmat(idxB+7, 12);
-        reducedBmat(iRow,13) = Bmat(idxB, 13) + Bmat(idxB+1, 13) + Bmat(idxB+2, 13) + Bmat(idxB+3, 13) + Bmat(idxB+4, 13) + Bmat(idxB+5, 13) + Bmat(idxB+6, 13) + Bmat(idxB+7, 13);
-        reducedBmat(iRow,14) = Bmat(idxB, 14) + Bmat(idxB+1, 14) + Bmat(idxB+2, 14) + Bmat(idxB+3, 14) + Bmat(idxB+4, 14) + Bmat(idxB+5, 14) + Bmat(idxB+6, 14) + Bmat(idxB+7, 14);
-        reducedBmat(iRow,15) = Bmat(idxB, 15) + Bmat(idxB+1, 15) + Bmat(idxB+2, 15) + Bmat(idxB+3, 15) + Bmat(idxB+4, 15) + Bmat(idxB+5, 15) + Bmat(idxB+6, 15) + Bmat(idxB+7, 15);
-        reducedBmat(iRow,16) = Bmat(idxB, 16) + Bmat(idxB+1, 16) + Bmat(idxB+2, 16) + Bmat(idxB+3, 16) + Bmat(idxB+4, 16) + Bmat(idxB+5, 16) + Bmat(idxB+6, 16) + Bmat(idxB+7, 16);
-        reducedBmat(iRow,17) = Bmat(idxB, 17) + Bmat(idxB+1, 17) + Bmat(idxB+2, 17) + Bmat(idxB+3, 17) + Bmat(idxB+4, 17) + Bmat(idxB+5, 17) + Bmat(idxB+6, 17) + Bmat(idxB+7, 17);
-        reducedBmat(iRow,18) = Bmat(idxB, 18) + Bmat(idxB+1, 18) + Bmat(idxB+2, 18) + Bmat(idxB+3, 18) + Bmat(idxB+4, 18) + Bmat(idxB+5, 18) + Bmat(idxB+6, 18) + Bmat(idxB+7, 18);
-        reducedBmat(iRow,19) = Bmat(idxB, 19) + Bmat(idxB+1, 19) + Bmat(idxB+2, 19) + Bmat(idxB+3, 19) + Bmat(idxB+4, 19) + Bmat(idxB+5, 19) + Bmat(idxB+6, 19) + Bmat(idxB+7, 19);
-        reducedBmat(iRow,20) = Bmat(idxB, 20) + Bmat(idxB+1, 20) + Bmat(idxB+2, 20) + Bmat(idxB+3, 20) + Bmat(idxB+4, 20) + Bmat(idxB+5, 20) + Bmat(idxB+6, 20) + Bmat(idxB+7, 20);
-
-        reducedDmat(iRow, 0) = Dmat(idxB,  0) + Dmat(idxB+1,  0) + Dmat(idxB+2,  0) + Dmat(idxB+3,  0) + Dmat(idxB+4,  0) + Dmat(idxB+5,  0) + Dmat(idxB+6,  0) + Dmat(idxB+7,  0);
-        reducedDmat(iRow, 1) = Dmat(idxB,  1) + Dmat(idxB+1,  1) + Dmat(idxB+2,  1) + Dmat(idxB+3,  1) + Dmat(idxB+4,  1) + Dmat(idxB+5,  1) + Dmat(idxB+6,  1) + Dmat(idxB+7,  1);
-        reducedDmat(iRow, 2) = Dmat(idxB,  2) + Dmat(idxB+1,  2) + Dmat(idxB+2,  2) + Dmat(idxB+3,  2) + Dmat(idxB+4,  2) + Dmat(idxB+5,  2) + Dmat(idxB+6,  2) + Dmat(idxB+7,  2);
-        reducedDmat(iRow, 3) = Dmat(idxB,  3) + Dmat(idxB+1,  3) + Dmat(idxB+2,  3) + Dmat(idxB+3,  3) + Dmat(idxB+4,  3) + Dmat(idxB+5,  3) + Dmat(idxB+6,  3) + Dmat(idxB+7,  3);
-        reducedDmat(iRow, 4) = Dmat(idxB,  4) + Dmat(idxB+1,  4) + Dmat(idxB+2,  4) + Dmat(idxB+3,  4) + Dmat(idxB+4,  4) + Dmat(idxB+5,  4) + Dmat(idxB+6,  4) + Dmat(idxB+7,  4);
-        reducedDmat(iRow, 5) = Dmat(idxB,  5) + Dmat(idxB+1,  5) + Dmat(idxB+2,  5) + Dmat(idxB+3,  5) + Dmat(idxB+4,  5) + Dmat(idxB+5,  5) + Dmat(idxB+6,  5) + Dmat(idxB+7,  5);
-      }
-}
-
-
+} 
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -754,7 +623,7 @@ __global__ void tallMatrixBlockReduction_8r(cv::cuda::PtrStepSz<float> reducedBm
 // the RGB camera is at a different location and orientation from the depth reciever
 // compute an RGB image with pixels 1:1 with the depth image (as best as possible using given calibration coefficients)
 extern "C"
-void syncColorToDepthData( cv::cuda::GpuMat colorInDepthMat,       // outputs
+void syncColorToDepthData( cv::cuda::GpuMat colorInDepthMat,      // outputs
                            cv::cuda::GpuMat depthMatRotated_mm,
                            cv::cuda::GpuMat depthMatShaded_mm,
                            cv::cuda::GpuMat shadingMaskMat,
@@ -811,7 +680,7 @@ void syncColorToDepthData( cv::cuda::GpuMat colorInDepthMat,       // outputs
 
 //-----------------------------------------------------------------------------
 extern "C"
-void transformData(cv::cuda::GpuMat colorInDepthMatTransformed,    // outputs
+void transformData(cv::cuda::GpuMat colorInDepthMatTransformed,   // outputs
                    cv::cuda::GpuMat depthMatVarTransformed_mm2,
                    cv::cuda::GpuMat depthMatTransformed_mm,
                    cv::cuda::GpuMat depthMatRotated_mm,
@@ -902,13 +771,13 @@ void runDepthKalmanFilters(cv::cuda::GpuMat posMat_m,             // outputs
                                         width,
                                         height); 
 
-    GaussianBlur5x5Kernel<<<grid, block>>>(depthMatBlurred,  // outputs
-                                           depthMatEst_mm,   // inputs
+    GaussianBlur5x5Kernel<<<grid, block>>>(depthMatBlurred, // outputs
+                                           depthMatEst_mm,  // inputs
                                            convergedMat,
                                            width,
                                            height);
 
-    edgeDetectorKernel<<<grid, block>>>(depthMatEdges,   // outputs
+    edgeDetectorKernel<<<grid, block>>>(depthMatEdges,  // outputs
                                         convergedMat,
                                         depthMatEst_mm, // inputs
                                         width,
@@ -926,7 +795,7 @@ void runDepthKalmanFilters(cv::cuda::GpuMat posMat_m,             // outputs
     // depthMatEst_mm = depthMatBlurred.clone();
 
     depthToPositionKernel<<<grid, block>>>(posMat_m,       // ouputs           
-                                           depthMatEst_mm,  // inputs
+                                           depthMatEst_mm, // inputs
                                            pixelXPosMat,  
                                            pixelYPosMat,
                                            width,
@@ -988,85 +857,4 @@ void mapColorDepthToOpenGL(float3 *pointsOut,                     // outputs
                                        height);   
 }
 
-
-//-----------------------------------------------------------------------------
-extern "C"
-void computeLeastSqauresMat(cv::cuda::GpuMat Bmat,             // outputs
-                            cv::cuda::GpuMat reducedBmat1,
-                            cv::cuda::GpuMat reducedBmat2,
-                            cv::cuda::GpuMat reducedBmat3,
-                            cv::cuda::GpuMat Dmat,
-                            cv::cuda::GpuMat reducedDmat1,
-                            cv::cuda::GpuMat reducedDmat2,
-                            cv::cuda::GpuMat reducedDmat3, 
-                            cv::cuda::GpuMat residualMat,   
-                            cv::cuda::GpuMat resMaskMat,
-                            cv::cuda::GpuMat depthMatEst_mm,    // inputs
-                            cv::cuda::GpuMat depthMat_mm,      
-                            cv::cuda::GpuMat normalMat,        
-                            cv::cuda::GpuMat depthMatVar_mm2, 
-                            cv::cuda::GpuMat pixelXPosMat,    
-                            cv::cuda::GpuMat pixelYPosMat,
-                            cv::cuda::GpuMat convergedMat,
-                            const unsigned int width,
-                            const unsigned int height)
-{
-
-    dim3 block(8, 8, 1);
-    dim3 grid(width / block.x, height / block.y, 1);
-
-    // compute the large least squares matricies
-    computeLeastSquaresMatKernel<<<grid, block>>>( Bmat,            // outputs
-                                                   Dmat,
-                                                   residualMat,
-                                                   resMaskMat,
-                                                   depthMatEst_mm,  // inputs 
-                                                   depthMat_mm,
-                                                   normalMat,                             
-                                                   depthMatVar_mm2,     
-                                                   pixelXPosMat,
-                                                   pixelYPosMat,
-                                                   convergedMat,
-                                                   width,
-                                                   height);   
-
-    // do sum block reduction to cut them down to size by summing the columns
-    // the final sumation will be done on the cpu, but the matricies will be much smaller
-    int n = width * height;
-
-    int blockSize = 64;
-    // 50880
-    int matHeight = (n / 8);
-    // 795
-    int numBlocks = matHeight / blockSize;
-
-    tallMatrixBlockReduction_8r<<<numBlocks, blockSize>>>(reducedBmat1,  // outputs
-                                                          reducedDmat1,    
-                                                          Bmat,          // inputs 
-                                                          Dmat,          
-                                                          matHeight);
-
-    blockSize = 32;
-    // 6360
-    matHeight = (n / 64);
-    numBlocks = 200;
-
-    tallMatrixBlockReduction_8r<<<numBlocks, blockSize>>>(reducedBmat2,  // outputs
-                                                          reducedDmat2,    
-                                                          reducedBmat1,  // inputs 
-                                                          reducedDmat1,          
-                                                          matHeight);
-
-    blockSize = 32;
-    // 795
-    matHeight = (n / 512);
-    numBlocks = 25;
-
-    tallMatrixBlockReduction_8r<<<numBlocks, blockSize>>>(reducedBmat3,  // outputs
-                                                          reducedDmat3,    
-                                                          reducedBmat2,  // inputs 
-                                                          reducedDmat2,          
-                                                          matHeight);
-
-}
 

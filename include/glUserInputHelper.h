@@ -43,7 +43,6 @@ public:
 
 private:
 
-
 };
 
 #endif /* SRC_GLUSERINPUTHELPER_H_ */

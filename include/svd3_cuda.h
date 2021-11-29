@@ -196,12 +196,12 @@ float dist2(float x, float y, float z)
 
 // finds transformation that diagonalizes a symmetric matrix
 __host__ __device__ __forceinline__
-void jacobiEigenanlysis( // symmetric matrix
-                                float &s11,
-                                float &s21, float &s22,
-                                float &s31, float &s32, float &s33,
-                                // quaternion representation of V
-                                float * qV)
+void jacobiEigenanlysis(// symmetric matrix
+                        float &s11,
+                        float &s21, float &s22,
+                        float &s31, float &s32, float &s33,
+                        // quaternion representation of V
+                        float * qV)
 {
     qV[3]=1; qV[0]=0;qV[1]=0;qV[2]=0; // follow same indexing convention as GLM
     for (int i=0;i<4;i++)
@@ -218,13 +218,13 @@ void jacobiEigenanlysis( // symmetric matrix
 
 __host__ __device__ __forceinline__
 void sortSingularValues(// matrix that we want to decompose
-                            float &b11, float &b12, float &b13,
-                            float &b21, float &b22, float &b23,
-                            float &b31, float &b32, float &b33,
-                          // sort V simultaneously
-                            float &v11, float &v12, float &v13,
-                            float &v21, float &v22, float &v23,
-                            float &v31, float &v32, float &v33)
+                        float &b11, float &b12, float &b13,
+                        float &b21, float &b22, float &b23,
+                        float &b31, float &b32, float &b33,
+                        // sort V simultaneously
+                        float &v11, float &v12, float &v13,
+                        float &v21, float &v22, float &v23,
+                        float &v31, float &v32, float &v33)
 {
     float rho1 = dist2(b11,b21,b31);
     float rho2 = dist2(b12,b22,b32);
@@ -265,17 +265,17 @@ void QRGivensQuaternion(float a1, float a2, float &ch, float &sh)
 
 __host__ __device__ __forceinline__
 void QRDecomposition(// matrix that we want to decompose
-                            float b11, float b12, float b13,
-                            float b21, float b22, float b23,
-                            float b31, float b32, float b33,
-                            // output Q
-                            float &q11, float &q12, float &q13,
-                            float &q21, float &q22, float &q23,
-                            float &q31, float &q32, float &q33,
-                            // output R
-                            float &r11, float &r12, float &r13,
-                            float &r21, float &r22, float &r23,
-                            float &r31, float &r32, float &r33)
+                    float b11, float b12, float b13,
+                    float b21, float b22, float b23,
+                    float b31, float b32, float b33,
+                    // output Q
+                    float &q11, float &q12, float &q13,
+                    float &q21, float &q22, float &q23,
+                    float &q31, float &q32, float &q33,
+                    // output R
+                    float &r11, float &r12, float &r13,
+                    float &r21, float &r22, float &r23,
+                    float &r31, float &r32, float &r33)
 {
     float ch1,sh1,ch2,sh2,ch3,sh3;
     float a,b;

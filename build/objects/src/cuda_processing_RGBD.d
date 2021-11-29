@@ -120,4 +120,4 @@ build/objects/src/cuda_processing_RGBD.o: src/cuda_processing_RGBD.cpp \
  /usr/local/cuda-11.4/include/driver_functions.h \
  /usr/local/cuda-11.4/include/vector_functions.h \
  /usr/local/cuda-11.4/include/vector_functions.hpp \
- src/cuda_processing_RGBD.h
+ include/cuda_processing_RGBD.h

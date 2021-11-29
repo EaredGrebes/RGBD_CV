@@ -1,6 +1,5 @@
 ############################################################
-# 
-############################################################ 
+# project configuration
 
 BUILD    := ./build
 OBJ_DIR  := $(BUILD)/objects
@@ -11,7 +10,8 @@ CXX      := g++
 #CXXFLAGS := -Wall -Wextra -DGL_GLEXT_PROTOTYPES
 CXXFLAGS := -Wall -Wextra 
 
-INCLUDE  := -I/usr/include/ \
+INCLUDE  := -I./include \
+            -I/usr/include/ \
 			-I/usr/local/include \
 			-I/usr/local/include/opencv4 \
 			-I../../common/inc \
@@ -45,7 +45,7 @@ NVCC	:= $(CUDA_PATH)/bin/nvcc -ccbin $(CXX)
 NVCCFLAGS   := -m${TARGET_SIZE}
 CCFLAGS     :=
 
-CUDA_INCLUDES:= -I/usr/local/include/opencv4 -I../../common/inc 
+CUDA_INCLUDES:= -I./include -I/usr/local/include/opencv4 -I../../common/inc 
 
 
 ALL_CCFLAGS :=
@@ -78,7 +78,10 @@ endif
 
 
 ############################################################
+# make commands for building and and other functionality
+
 # note: can add @ to the beggining of all make commands to suppress the terminal output
+# note: Makefile very finicky with tabs or spaces or something. If it breaks, good place to look
 
 all: build $(APP_DIR)/$(TARGET)
 	
