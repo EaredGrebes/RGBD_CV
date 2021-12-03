@@ -53,8 +53,16 @@ public:
 	// for transforming shading RGBD images
 	cv::cuda::GpuMat depthMatRotated_mm;
 	cv::cuda::GpuMat depthMatShaded_mm;
-	cv::cuda::GpuMat shadingMaskMat;
-	cv::cuda::GpuMat colorInDepthMat;
+	cv::cuda::GpuMat depthShadedMaskMat;
+	cv::cuda::GpuMat clrShadedMaskMat;
+
+	cv::cuda::GpuMat colorInDepthMat_r;  // why split these into rgb? because I can't figure out how to loop through vector components in cuda (.x, .y, .z)
+	cv::cuda::GpuMat colorInDepthMat_g;
+	cv::cuda::GpuMat colorInDepthMat_b;
+
+	cv::cuda::GpuMat clrInDepthMatBlurred_r;  
+	cv::cuda::GpuMat clrInDepthMatBlurred_g;
+	cv::cuda::GpuMat clrInDepthMatBlurred_b;
 
 	cv::cuda::GpuMat xIdNewMat;
 	cv::cuda::GpuMat yIdNewMat;

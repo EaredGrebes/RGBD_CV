@@ -19,7 +19,7 @@ __constant__ float rgbPixelCoeffs[4] = {420.779, 244.096, 421.258, 420.961};
 // these are for correcting the rgb lens distortion, equation and coefficients taken from realsense api
 __constant__ float rgbLensCoeffs[5] = {-0.0554403, 0.0637236, -0.000739898, 0.000511257, -0.0202138};
 
-//                                      ppx      ppx      fx       fy
+//                                        ppx      ppx      fx       fy
 __constant__ float depthPixelCoeffs[4] = {423.337, 238.688, 421.225, 421.225};
 
 //  should be zero, see this:
@@ -27,12 +27,11 @@ __constant__ float depthPixelCoeffs[4] = {423.337, 238.688, 421.225, 421.225};
 __constant__ float depthLensCoeffs[5] = {0, 0, 0, 0, 0};
 
 // kalman filter parameters 
-__constant__ float processNoiseVar_mm2 = 15.0f;
-__constant__ float measNoiseVar_mm2 = 2000.0f;
+__constant__ float processNoiseVar_mm2 = 30.0f;
+__constant__ float measNoiseVar_mm2 = 100.0f;
 
 __constant__ float depthVarMax_mm2 = 5000 * 5000;
 __constant__ float depthVarMin_mm2 = 4;
-
 
 __constant__ float depthConvergedThresh_mm2 = 900.0f;
 
@@ -43,7 +42,7 @@ __constant__ float angleThresh = 0.17f;
 
 __constant__ float k_ave = 0.3f;   
 
-// the gaussian kernel for image blurring
+// the gaussian kernel for image blurring (I know this is a seperable filter, but that's more code to write)
 __constant__ int gK[25] = {1, 4,  7,  4,  1,
                            4, 16, 26, 16, 4,
                            7, 26, 41, 26, 7,
@@ -59,7 +58,7 @@ __constant__ int gy[9] = {1,  2,  1,
                           0,  0,  0,
                          -1, -2, -1};
 
- __constant__ float gradScale = 4.0e-3;                      
+ __constant__ float gradScale = 1.5e-3;                      
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -67,12 +66,13 @@ __constant__ int gy[9] = {1,  2,  1,
 ///////////////////////////////////////////////////////////////////////////////
 
 //-----------------------------------------------------------------------------
+// this function takes a 3d x,y,z point and computes it's pixel x,y integer index
 __device__ __forceinline__ bool projectPointToPixel(uint2 &pixelXY,         // outputs
-                                    float3 &position_m,     // inputs
-                                    float *pixelCoeffs,
-                                    float *lensCoeffs,
-                                    unsigned int width,
-                                    unsigned int height)
+                                                    float3 &position_m,     // inputs
+                                                    float *pixelCoeffs,
+                                                    float *lensCoeffs,
+                                                    unsigned int width,
+                                                    unsigned int height)
 
 {
 
@@ -122,44 +122,54 @@ __device__ __forceinline__ bool projectPointToPixel(uint2 &pixelXY,         // o
 ///////////////////////////////////////////////////////////////////////////////
 
 //-----------------------------------------------------------------------------
-__global__ void GaussianBlur5x5Kernel(cv::cuda::PtrStepSz<int> depthMatBlurred, // outputs
-                                      cv::cuda::PtrStepSz<int> depthMat,        // inputs
+// this implements a guassian blur for integer data type images
+// why int? because cuda atomicMin cannot use floating point values,
+// and the depth image needs atomicMin for shading
+__global__ void GaussianBlur5x5Kernel(cv::cuda::PtrStepSz<int> matBlurredPtr, // outputs
+                                      cv::cuda::PtrStepSz<int> matPtr,        // inputs
                                       cv::cuda::PtrStepSz<int> cMatPtr,
                                       unsigned int width,
-                                      unsigned int height)
+                                      unsigned int height,
+                                      int blurFlag)
 {
     unsigned int iCol = blockIdx.x*blockDim.x + threadIdx.x;
     unsigned int iRow = blockIdx.y*blockDim.y + threadIdx.y; 
 
-    if ( (iCol >= 2)           &&
-         (iCol < (width - 2))  &&
-         (iRow >= 2)           &&
-         (iRow < (height - 2)) &&
-         (cMatPtr(iRow, iCol) == 1)) {
+    if (cMatPtr(iRow, iCol) == blurFlag) {
 
-        // this implements a filter with potentially missing data, as specified by cMatPtr.  
-        int gKm[25] = {
-        gK[0] *cMatPtr(iRow-2,iCol-2), gK[1] *cMatPtr(iRow-2,iCol-1), gK[2] *cMatPtr(iRow-2,iCol), gK[3] *cMatPtr(iRow-2,iCol+1), gK[4] *cMatPtr(iRow-2, iCol+2), 
-        gK[5] *cMatPtr(iRow-1,iCol-2), gK[6] *cMatPtr(iRow-1,iCol-1), gK[7] *cMatPtr(iRow-1,iCol), gK[8] *cMatPtr(iRow-1,iCol+1), gK[9] *cMatPtr(iRow-1, iCol+1), 
-        gK[10]*cMatPtr(iRow,  iCol-2), gK[11]*cMatPtr(iRow,  iCol-1), gK[12]*cMatPtr(iRow,  iCol), gK[13]*cMatPtr(iRow,  iCol+1), gK[14]*cMatPtr(iRow,  iCol+2), 
-        gK[15]*cMatPtr(iRow+1,iCol-2), gK[16]*cMatPtr(iRow+1,iCol-1), gK[17]*cMatPtr(iRow+1,iCol), gK[18]*cMatPtr(iRow+1,iCol+1), gK[19]*cMatPtr(iRow+1,iCol+2),
-        gK[20]*cMatPtr(iRow+2,iCol-2), gK[21]*cMatPtr(iRow+2,iCol-1), gK[22]*cMatPtr(iRow+2,iCol), gK[23]*cMatPtr(iRow+2,iCol+1), gK[24]*cMatPtr(iRow+2,iCol+2) };
+        if ( (iCol >= 2)           &&
+             (iCol < (width - 2))  &&
+             (iRow >= 2)           &&
+             (iRow < (height - 2))) {
 
-        // this is the convolution of the gaussian kernel over the 5x5 pixel window
-        int sum = 
-        gKm[0] *depthMat(iRow-2,iCol-2) + gKm[1] *depthMat(iRow-2,iCol-1) + gKm[2] *depthMat(iRow-2,iCol) + gKm[3] *depthMat(iRow-2,iCol+1) + gKm[4] *depthMat(iRow-2, iCol+2) +
-        gKm[5] *depthMat(iRow-1,iCol-2) + gKm[6] *depthMat(iRow-1,iCol-1) + gKm[7] *depthMat(iRow-1,iCol) + gKm[8] *depthMat(iRow-1,iCol+1) + gKm[9] *depthMat(iRow-1, iCol+1) +
-        gKm[10]*depthMat(iRow,  iCol-2) + gKm[11]*depthMat(iRow,  iCol-1) + gKm[12]*depthMat(iRow,  iCol) + gKm[13]*depthMat(iRow,  iCol+1) + gKm[14]*depthMat(iRow,  iCol+2) +
-        gKm[15]*depthMat(iRow+1,iCol-2) + gKm[16]*depthMat(iRow+1,iCol-1) + gKm[17]*depthMat(iRow+1,iCol) + gKm[18]*depthMat(iRow+1,iCol+1) + gKm[19]*depthMat(iRow+1,iCol+2) +
-        gKm[20]*depthMat(iRow+2,iCol-2) + gKm[21]*depthMat(iRow+2,iCol-1) + gKm[22]*depthMat(iRow+2,iCol) + gKm[23]*depthMat(iRow+2,iCol+1) + gKm[24]*depthMat(iRow+2,iCol+2);
-    
-        // compute the sum of the filter coefficients
-        int sum2 = gKm[0]  + gKm[1]  + gKm[2]  + gKm[3] + gKm[4] + gKm[5] + gKm[6] + gKm[7] + gKm[8] + gKm[9] + gKm[10] + gKm[11] + gKm[12] + gKm[13] + gKm[14] + gKm[15] 
-                 + gKm[16] + gKm[17] + gKm[18] + gKm[19]+ gKm[20]+ gKm[21]+ gKm[22]+ gKm[23]+ gKm[24];
+            // this implements a filter with potentially missing data, as specified by cMatPtr.  
+            // all loops unrolled, because I read multiple places this is faster for Cuda, as the nvcc compiler does not unroll them
+            int gKm[25] = {
+            gK[0] *cMatPtr(iRow-2,iCol-2), gK[1] *cMatPtr(iRow-2,iCol-1), gK[2] *cMatPtr(iRow-2,iCol), gK[3] *cMatPtr(iRow-2,iCol+1), gK[4] *cMatPtr(iRow-2, iCol+2), 
+            gK[5] *cMatPtr(iRow-1,iCol-2), gK[6] *cMatPtr(iRow-1,iCol-1), gK[7] *cMatPtr(iRow-1,iCol), gK[8] *cMatPtr(iRow-1,iCol+1), gK[9] *cMatPtr(iRow-1, iCol+1), 
+            gK[10]*cMatPtr(iRow,  iCol-2), gK[11]*cMatPtr(iRow,  iCol-1), gK[12]*cMatPtr(iRow,  iCol), gK[13]*cMatPtr(iRow,  iCol+1), gK[14]*cMatPtr(iRow,  iCol+2), 
+            gK[15]*cMatPtr(iRow+1,iCol-2), gK[16]*cMatPtr(iRow+1,iCol-1), gK[17]*cMatPtr(iRow+1,iCol), gK[18]*cMatPtr(iRow+1,iCol+1), gK[19]*cMatPtr(iRow+1,iCol+2),
+            gK[20]*cMatPtr(iRow+2,iCol-2), gK[21]*cMatPtr(iRow+2,iCol-1), gK[22]*cMatPtr(iRow+2,iCol), gK[23]*cMatPtr(iRow+2,iCol+1), gK[24]*cMatPtr(iRow+2,iCol+2) };
 
-        int tmp3 = __float2int_rn(__int2float_rn(sum) / __int2float_rn(sum2));
-    
-        depthMatBlurred(iRow, iCol) = tmp3;
+            // this is the convolution of the gaussian kernel over the 5x5 pixel window
+            int sum = 
+            gKm[0] *matPtr(iRow-2,iCol-2) + gKm[1] *matPtr(iRow-2,iCol-1) + gKm[2] *matPtr(iRow-2,iCol) + gKm[3] *matPtr(iRow-2,iCol+1) + gKm[4] *matPtr(iRow-2, iCol+2) +
+            gKm[5] *matPtr(iRow-1,iCol-2) + gKm[6] *matPtr(iRow-1,iCol-1) + gKm[7] *matPtr(iRow-1,iCol) + gKm[8] *matPtr(iRow-1,iCol+1) + gKm[9] *matPtr(iRow-1, iCol+1) +
+            gKm[10]*matPtr(iRow,  iCol-2) + gKm[11]*matPtr(iRow,  iCol-1) + gKm[12]*matPtr(iRow,  iCol) + gKm[13]*matPtr(iRow,  iCol+1) + gKm[14]*matPtr(iRow,  iCol+2) +
+            gKm[15]*matPtr(iRow+1,iCol-2) + gKm[16]*matPtr(iRow+1,iCol-1) + gKm[17]*matPtr(iRow+1,iCol) + gKm[18]*matPtr(iRow+1,iCol+1) + gKm[19]*matPtr(iRow+1,iCol+2) +
+            gKm[20]*matPtr(iRow+2,iCol-2) + gKm[21]*matPtr(iRow+2,iCol-1) + gKm[22]*matPtr(iRow+2,iCol) + gKm[23]*matPtr(iRow+2,iCol+1) + gKm[24]*matPtr(iRow+2,iCol+2);
+        
+            // compute the sum of the filter coefficients
+            int sumWeight = gKm[0]  + gKm[1]  + gKm[2]  + gKm[3] + gKm[4] + gKm[5] + gKm[6] + gKm[7] + gKm[8] + gKm[9] + gKm[10] + gKm[11] + gKm[12] + gKm[13] + gKm[14] + gKm[15] 
+                     + gKm[16] + gKm[17] + gKm[18] + gKm[19]+ gKm[20]+ gKm[21]+ gKm[22]+ gKm[23]+ gKm[24];
+
+            int val = __float2int_rn(__int2float_rn(sum) / __int2float_rn(sumWeight));
+        
+            matBlurredPtr(iRow, iCol) = val;
+        }
+
+    } else {
+        matBlurredPtr(iRow, iCol) = matPtr(iRow, iCol);
     }
 }
 
@@ -223,8 +233,10 @@ __global__ void edgeDetectorKernel(cv::cuda::PtrStepSz<float> depthMatEdges,   /
 
 
 //-----------------------------------------------------------------------------
+// this function smoothes 3d points in the point cloud by averaging the point location
+// with it's adjacement neighbors
 __global__ void pointSmoothingKernel(cv::cuda::PtrStepSz<float3> posMatSmoothedPtr_m,  // outputs
-                                     cv::cuda::PtrStepSz<float3> posMatPtr_m,           // inputs
+                                     cv::cuda::PtrStepSz<float3> posMatPtr_m,          // inputs
                                      cv::cuda::PtrStepSz<int>    cMatPtr,
                                      cv::cuda::PtrStepSz<float>  pixelXPosMat,
                                      cv::cuda::PtrStepSz<float>  pixelYPosMat,
@@ -275,6 +287,7 @@ __global__ void pointSmoothingKernel(cv::cuda::PtrStepSz<float3> posMatSmoothedP
 
 
 //-----------------------------------------------------------------------------
+// computes the normal vector (perpendicular to a surface) of each valid depth pixel
 __global__ void computeNormalKernel(cv::cuda::PtrStepSz<float3> normMatPtr,   // outputs
                                     cv::cuda::PtrStepSz<float3> posMatPtr_m,  // inputs
                                     cv::cuda::PtrStepSz<int>    cMatPtr,
@@ -426,10 +439,12 @@ __global__ void depthToPositionKernel(cv::cuda::PtrStepSz<float3> posMatPtr_m,  
 
 
 //-----------------------------------------------------------------------------
-// for realsense processing
+// applies a rotation and transformation to the 3-d point cloud data, then re-computes
+// the expected depth image, taking into account any shading that may have occured due
+// to the perspective change
 __global__ void transformPositionToDepthKernel(cv::cuda::PtrStepSz<int> depthMatRotatedPtr_mm,  // outputs
                                             cv::cuda::PtrStepSz<int> depthShadedPtr_mm,
-                                            cv::cuda::PtrStepSz<uchar> shadingMaskMatPtr,
+                                            cv::cuda::PtrStepSz<int> shadingMaskMatPtr,
                                             cv::cuda::PtrStepSz<int> xIdNewMatPtr,
                                             cv::cuda::PtrStepSz<int> yIdNewMatPtr,
                                             cv::cuda::PtrStepSz<float3> posMatPtr_m,            // inputs          
@@ -457,18 +472,18 @@ __global__ void transformPositionToDepthKernel(cv::cuda::PtrStepSz<int> depthMat
 
     if (useRgbCoeff){
         pixelInRange = projectPointToPixel(pixelXY,         // outputs
-                                            pointFrame2_m,  // inputs
-                                            rgbPixelCoeffs,
-                                            rgbLensCoeffs,
-                                            width,
-                                            height);
+                                           pointFrame2_m,  // inputs
+                                           rgbPixelCoeffs,
+                                           rgbLensCoeffs,
+                                           width,
+                                           height);
     } else {
         pixelInRange = projectPointToPixel(pixelXY,         // outputs
-                                            pointFrame2_m,  // inputs
-                                            depthPixelCoeffs,
-                                            depthLensCoeffs,
-                                            width,
-                                            height); 
+                                           pointFrame2_m,  // inputs
+                                           depthPixelCoeffs,
+                                           depthLensCoeffs,
+                                           width,
+                                           height); 
     }
 
     if (depthInRange && pixelInRange){
@@ -493,25 +508,27 @@ __global__ void transformPositionToDepthKernel(cv::cuda::PtrStepSz<int> depthMat
 
 
 //-----------------------------------------------------------------------------
-__global__ void generateShadedColorImageKernel(  cv::cuda::PtrStepSz<uchar3> shadedColorMatPtr,  // outputs
-                                                 cv::cuda::PtrStepSz<uchar3> colorMatPtr,        // inputs
-                                                 cv::cuda::PtrStepSz<int> depthMatRotatedPtr_mm,   
-                                                 cv::cuda::PtrStepSz<int> depthShadedPtr_mm,
-                                                 cv::cuda::PtrStepSz<uchar> MaskMatPtr,
-                                                 cv::cuda::PtrStepSz<int> xIdNewMatPtr,
-                                                 cv::cuda::PtrStepSz<int> yIdNewMatPtr,
-                                                 unsigned int width,
-                                                 unsigned int height)
+// computes R,G,B of the depth points.  the depth and rgb cameras are at different
+// locations in the sensor, so this function corrects for that.  
+__global__ void generateShadedColorImageKernel( cv::cuda::PtrStepSz<int> shadedColorMatPtr_r, // outputs
+                                                cv::cuda::PtrStepSz<int> shadedColorMatPtr_g,
+                                                cv::cuda::PtrStepSz<int> shadedColorMatPtr_b,
+                                                cv::cuda::PtrStepSz<int> clrShadedMaskMatPtr,
+                                                cv::cuda::PtrStepSz<uchar3> colorMatPtr,      // inputs
+                                                cv::cuda::PtrStepSz<int> depthMatRotatedPtr_mm,   
+                                                cv::cuda::PtrStepSz<int> depthShadedPtr_mm,
+                                                cv::cuda::PtrStepSz<int> depthShadedMaskMatPtr,
+                                                cv::cuda::PtrStepSz<int> xIdNewMatPtr,
+                                                cv::cuda::PtrStepSz<int> yIdNewMatPtr,
+                                                unsigned int width,
+                                                unsigned int height)
 {
     
     // inputs
     unsigned int iCol = blockIdx.x*blockDim.x + threadIdx.x;
     unsigned int iRow = blockIdx.y*blockDim.y + threadIdx.y;
 
-    // if no data is available for the pixel, make it magenta
-    uchar3 color = make_uchar3(160, 0, 160);
-
-    if (MaskMatPtr(iRow, iCol) == 1) {
+    if (depthShadedMaskMatPtr(iRow, iCol) == 1) {
 
         int mappedRow = yIdNewMatPtr(iRow, iCol);
         int mappedCol = xIdNewMatPtr(iRow, iCol);
@@ -523,15 +540,19 @@ __global__ void generateShadedColorImageKernel(  cv::cuda::PtrStepSz<uchar3> sha
             // assume the transformation represents the depth to camera frames,
             // so look up the color in the newly computed color frame, and assign it to the
             // depth frame color
-            color = colorMatPtr(mappedRow, mappedCol);
+            shadedColorMatPtr_r(iRow, iCol) = int(colorMatPtr(mappedRow, mappedCol).z);
+            shadedColorMatPtr_g(iRow, iCol) = int(colorMatPtr(mappedRow, mappedCol).y);
+            shadedColorMatPtr_b(iRow, iCol) = int(colorMatPtr(mappedRow, mappedCol).x);
 
+            clrShadedMaskMatPtr(iRow, iCol) = 1;
         }
-        shadedColorMatPtr(iRow, iCol) = color;  
     }
 }
 
 
 //-----------------------------------------------------------------------------
+// given a new pixel mapping due to a perspective change, re-compute all the associated
+// images with this new pixel mapping
 __global__ void transformMatsKernel( cv::cuda::PtrStepSz<float> depthMatVarTransformedPtr_mm2, // outputs
                                      cv::cuda::PtrStepSz<uchar3> colorMatTransformedPtr, 
                                      cv::cuda::PtrStepSz<float> depthMatVarPtr_mm2,            // inputs
@@ -572,13 +593,16 @@ __global__ void transformMatsKernel( cv::cuda::PtrStepSz<float> depthMatVarTrans
 
 
 //-----------------------------------------------------------------------------
+// assigns 3-d points and color to pointer array that is used by OpenGL for visualization
 __global__ void mapToOpenGLKernel(float3 *pointsOut,                        // outputs
                                   uchar3 *colorsOut,                              
                                   cv::cuda::PtrStepSz<int> depthMatPtr_mm,  // inputs
                                   cv::cuda::PtrStepSz<float> depthMatVarPtr_mm2,
                                   cv::cuda::PtrStepSz<float3> posMatPtr_m,
                                   cv::cuda::PtrStepSz<float3> normMatPtr,
-                                  cv::cuda::PtrStepSz<uchar3> colorInDepthMatPtr,
+                                  cv::cuda::PtrStepSz<int>  colorInDepthMatPtr_r,
+                                  cv::cuda::PtrStepSz<int>  colorInDepthMatPtr_g,
+                                  cv::cuda::PtrStepSz<int>  colorInDepthMatPtr_b,
                                   cv::cuda::PtrStepSz<float> pixelXPosMatPtr,
                                   cv::cuda::PtrStepSz<float> pixelYPosMatPtr,
                                   unsigned int width,
@@ -590,7 +614,6 @@ __global__ void mapToOpenGLKernel(float3 *pointsOut,                        // o
     unsigned int iRow = blockIdx.y*blockDim.y + threadIdx.y;
 
     float3 point_m  = make_float3(0, 0, 0);
-    uchar3 color = colorInDepthMatPtr(iRow, iCol);
 
     float3 normUvec = normMatPtr(iRow, iCol);
     float sum = normUvec.x*normUvec.x + normUvec.y*normUvec.y + normUvec.z*normUvec.z;
@@ -606,143 +629,19 @@ __global__ void mapToOpenGLKernel(float3 *pointsOut,                        // o
 
         float3 tmp = posMatPtr_m(iRow, iCol);
         point_m = make_float3(tmp.x, -tmp.y, -tmp.z); 
-
     }
 
     // openGL and openCV have different RGB orders
     pointsOut[iRow * width + iCol] = point_m;
-    colorsOut[iRow * width + iCol] = make_uchar3(color.z, color.y, color.x);
+    colorsOut[iRow * width + iCol] = make_uchar3(colorInDepthMatPtr_r(iRow, iCol), 
+                                                 colorInDepthMatPtr_g(iRow, iCol),
+                                                 colorInDepthMatPtr_b(iRow, iCol));
 } 
 
 
 ///////////////////////////////////////////////////////////////////////////////
 // kernel wrapper functions, called in .cpp files
 ///////////////////////////////////////////////////////////////////////////////
-
-//-----------------------------------------------------------------------------
-// the RGB camera is at a different location and orientation from the depth reciever
-// compute an RGB image with pixels 1:1 with the depth image (as best as possible using given calibration coefficients)
-extern "C"
-void syncColorToDepthData( cv::cuda::GpuMat colorInDepthMat,      // outputs
-                           cv::cuda::GpuMat depthMatRotated_mm,
-                           cv::cuda::GpuMat depthMatShaded_mm,
-                           cv::cuda::GpuMat shadingMaskMat,
-                           cv::cuda::GpuMat xIdNewMat,
-                           cv::cuda::GpuMat yIdNewMat,
-                           cv::cuda::GpuMat posMat_m,
-                           const cv::cuda::GpuMat depthMat_mm,    // inputs
-                           const cv::cuda::GpuMat colorMat,
-                           const cv::cuda::GpuMat pixelXPosMat,
-                           const cv::cuda::GpuMat pixelYPosMat,
-                           const unsigned int width,
-                           const unsigned int height,
-                           float *dcmDepthtoColor,
-                           float *posDepthToColor_m)
-{
-
-    dim3 block(8, 8, 1);
-    dim3 grid(width / block.x, height / block.y, 1);
-
-    bool useRgbCoeffs = true;
-
-    // for going from the 3D points to the RGB pixel locations, use the rgb lense coeffs
-    depthToPositionKernel<<<grid, block>>>(posMat_m,   // ouputs           
-                                          depthMat_mm,  // inputs
-                                          pixelXPosMat,  
-                                          pixelYPosMat,
-                                          width,
-                                          height);
-
-    transformPositionToDepthKernel<<<grid, block>>>(depthMatRotated_mm, // outputs
-                                                    depthMatShaded_mm,
-                                                    shadingMaskMat,
-                                                    xIdNewMat,
-                                                    yIdNewMat,
-                                                    posMat_m,           // inputs          
-                                                    width,
-                                                    height,
-                                                    dcmDepthtoColor,
-                                                    posDepthToColor_m,
-                                                    useRgbCoeffs);
-
-    // in this function, map the raw colorMat to the depth frame and store it in colorInDepthMat
-    generateShadedColorImageKernel<<<grid, block>>>(  colorInDepthMat,     // outputs
-                                                      colorMat,            // inputs
-                                                      depthMatRotated_mm,   
-                                                      depthMatShaded_mm,
-                                                      shadingMaskMat,
-                                                      xIdNewMat,
-                                                      yIdNewMat,
-                                                      width,
-                                                      height);   
-}
-
-
-//-----------------------------------------------------------------------------
-extern "C"
-void transformData(cv::cuda::GpuMat colorInDepthMatTransformed,   // outputs
-                   cv::cuda::GpuMat depthMatVarTransformed_mm2,
-                   cv::cuda::GpuMat depthMatTransformed_mm,
-                   cv::cuda::GpuMat depthMatRotated_mm,
-                   cv::cuda::GpuMat shadingMaskMat,
-                   cv::cuda::GpuMat xIdNewMat,
-                   cv::cuda::GpuMat yIdNewMat,
-                   cv::cuda::GpuMat posMat_m,    
-                   const cv::cuda::GpuMat depthMat_mm,            // inputs 
-                   const cv::cuda::GpuMat depthMatVar_mm2,         
-                   const cv::cuda::GpuMat colorMatInput,  
-                   const cv::cuda::GpuMat depthMatMeas_mm,                     
-                   const cv::cuda::GpuMat pixelXPosMat,
-                   const cv::cuda::GpuMat pixelYPosMat,
-                   const unsigned int width,
-                   const unsigned int height,
-                   float *dcmRotation,
-                   float *posTrans_m)
-{
-
-    dim3 block(8, 8, 1);
-    dim3 grid(width / block.x, height / block.y, 1);
-
-    bool useRgbCoeffs = false;
-
-    // depth must be transformed first.  since depth contains the z, information,
-    // and with the pixel locations contains the (x, y, z) information for each point
-    // so the depth image is all that is necessary to compute the transformed + shaded
-    // depth image, as well as pixel location indexes for the transformed variance and
-    // color images.
-    depthToPositionKernel<<<grid, block>>>(posMat_m,   // ouputs           
-                                          depthMat_mm,  // inputs
-                                          pixelXPosMat,  
-                                          pixelYPosMat,
-                                          width,
-                                          height);  
-
-    transformPositionToDepthKernel<<<grid, block>>>(depthMatRotated_mm, // outputs
-                                                    depthMatTransformed_mm,
-                                                    shadingMaskMat,
-                                                    xIdNewMat,
-                                                    yIdNewMat,
-                                                    posMat_m,           // inputs           
-                                                    width,
-                                                    height,
-                                                    dcmRotation,
-                                                    posTrans_m,
-                                                    useRgbCoeffs);
-
-
-    transformMatsKernel<<<grid, block>>>( depthMatVarTransformed_mm2, // outputs
-                                          colorInDepthMatTransformed,  
-                                          depthMatVar_mm2,            // inputs
-                                          colorMatInput,               
-                                          depthMatRotated_mm,   
-                                          depthMatTransformed_mm,
-                                          shadingMaskMat,
-                                          xIdNewMat,
-                                          yIdNewMat,
-                                          width,
-                                          height);  
-}
-
 
 //-----------------------------------------------------------------------------
 extern "C"
@@ -771,11 +670,13 @@ void runDepthKalmanFilters(cv::cuda::GpuMat posMat_m,             // outputs
                                         width,
                                         height); 
 
+    int blurFlag = 1;  // set to 1 to blur
     GaussianBlur5x5Kernel<<<grid, block>>>(depthMatBlurred, // outputs
                                            depthMatEst_mm,  // inputs
                                            convergedMat,
                                            width,
-                                           height);
+                                           height,
+                                           blurFlag);
 
     edgeDetectorKernel<<<grid, block>>>(depthMatEdges,  // outputs
                                         convergedMat,
@@ -784,7 +685,7 @@ void runDepthKalmanFilters(cv::cuda::GpuMat posMat_m,             // outputs
                                         height);
 
     depthMatBlurred.setTo(0);
-
+ 
     // blur again, this time ignoring the edge points when computing the convolution
     // GaussianBlur5x5Kernel<<<grid, block>>>(depthMatBlurred,  // outputs
     //                                        depthMatEst_mm,   // inputs
@@ -827,13 +728,171 @@ void runDepthKalmanFilters(cv::cuda::GpuMat posMat_m,             // outputs
 // the RGB camera is at a different location and orientation from the depth reciever
 // compute an RGB image with pixels 1:1 with the depth image (as best as possible using given calibration coefficients)
 extern "C"
+void syncColorToDepthData( cv::cuda::GpuMat colorInDepthMat_r,    // outputs
+                           cv::cuda::GpuMat colorInDepthMat_g,
+                           cv::cuda::GpuMat colorInDepthMat_b,
+                           cv::cuda::GpuMat clrInDepthMatBlurred_r,    
+                           cv::cuda::GpuMat clrInDepthMatBlurred_g,
+                           cv::cuda::GpuMat clrInDepthMatBlurred_b,
+                           cv::cuda::GpuMat depthMatRotated_mm,
+                           cv::cuda::GpuMat depthMatShaded_mm,
+                           cv::cuda::GpuMat depthShadedMaskMat,
+                           cv::cuda::GpuMat clrShadedMaskMat,
+                           cv::cuda::GpuMat xIdNewMat,
+                           cv::cuda::GpuMat yIdNewMat,
+                           cv::cuda::GpuMat posMat_m,
+                           const cv::cuda::GpuMat depthMat_mm,    // inputs
+                           const cv::cuda::GpuMat colorMat,
+                           const cv::cuda::GpuMat pixelXPosMat,
+                           const cv::cuda::GpuMat pixelYPosMat,
+                           const unsigned int width,
+                           const unsigned int height,
+                           float *dcmDepthtoColor,
+                           float *posDepthToColor_m)
+{
+
+    dim3 block(8, 8, 1);
+    dim3 grid(width / block.x, height / block.y, 1);
+
+    bool useRgbCoeffs = true;
+
+    // for going from the 3D points to the RGB pixel locations, use the rgb lense coeffs
+    depthToPositionKernel<<<grid, block>>>(posMat_m,   // ouputs           
+                                          depthMat_mm,  // inputs
+                                          pixelXPosMat,  
+                                          pixelYPosMat,
+                                          width,
+                                          height);
+
+    transformPositionToDepthKernel<<<grid, block>>>(depthMatRotated_mm, // outputs
+                                                    depthMatShaded_mm,
+                                                    depthShadedMaskMat,
+                                                    xIdNewMat,
+                                                    yIdNewMat,
+                                                    posMat_m,           // inputs          
+                                                    width,
+                                                    height,
+                                                    dcmDepthtoColor,
+                                                    posDepthToColor_m,
+                                                    useRgbCoeffs);
+
+    // in this function, map the raw colorMat to the depth frame and store it in colorInDepthMat
+    generateShadedColorImageKernel<<<grid, block>>>(colorInDepthMat_r,   // outputs
+                                                    colorInDepthMat_g,
+                                                    colorInDepthMat_b,
+                                                    clrShadedMaskMat,
+                                                    colorMat,            // inputs
+                                                    depthMatRotated_mm,   
+                                                    depthMatShaded_mm,
+                                                    depthShadedMaskMat,
+                                                    xIdNewMat,
+                                                    yIdNewMat,
+                                                    width,
+                                                    height);  
+
+    int blurFlag = 0;  // set to 0 to fill in missing points, leave valid points alone
+    GaussianBlur5x5Kernel<<<grid, block>>>(clrInDepthMatBlurred_r, // outputs
+                                           colorInDepthMat_r,      // inputs
+                                           clrShadedMaskMat,
+                                           width,
+                                           height,
+                                           blurFlag);
+
+    GaussianBlur5x5Kernel<<<grid, block>>>(clrInDepthMatBlurred_g, // outputs
+                                           colorInDepthMat_g,      // inputs
+                                           clrShadedMaskMat,
+                                           width,
+                                           height,
+                                           blurFlag);
+
+    GaussianBlur5x5Kernel<<<grid, block>>>(clrInDepthMatBlurred_b, // outputs
+                                           colorInDepthMat_b,      // inputs
+                                           clrShadedMaskMat,
+                                           width,
+                                           height,
+                                           blurFlag);                                                                                                                                           
+}
+
+
+//-----------------------------------------------------------------------------
+extern "C"
+void transformData(cv::cuda::GpuMat colorInDepthMatTransformed,   // outputs
+                   cv::cuda::GpuMat depthMatVarTransformed_mm2,
+                   cv::cuda::GpuMat depthMatTransformed_mm,
+                   cv::cuda::GpuMat depthMatRotated_mm,
+                   cv::cuda::GpuMat shadingMaskMat,
+                   cv::cuda::GpuMat xIdNewMat,
+                   cv::cuda::GpuMat yIdNewMat,
+                   cv::cuda::GpuMat posMat_m,    
+                   const cv::cuda::GpuMat depthMat_mm,            // inputs 
+                   const cv::cuda::GpuMat depthMatVar_mm2,         
+                   const cv::cuda::GpuMat colorMatInput,  
+                   const cv::cuda::GpuMat depthMatMeas_mm,                     
+                   const cv::cuda::GpuMat pixelXPosMat,
+                   const cv::cuda::GpuMat pixelYPosMat,
+                   const unsigned int width,
+                   const unsigned int height,
+                   float *dcmRotation,
+                   float *posTrans_m)
+{
+
+    dim3 block(8, 8, 1);
+    dim3 grid(width / block.x, height / block.y, 1);
+
+    bool useRgbCoeffs = false;
+
+    // depth must be transformed first.  since depth contains the z, information,
+    // and with the pixel locations contains the (x, y, z) information for each point
+    // so the depth image is all that is necessary to compute the transformed + shaded
+    // depth image, as well as pixel location indexes for the transformed variance and
+    // color images.
+    depthToPositionKernel<<<grid, block>>>(posMat_m,     // ouputs           
+                                           depthMat_mm,  // inputs
+                                           pixelXPosMat,  
+                                           pixelYPosMat,
+                                           width,
+                                           height);  
+
+    transformPositionToDepthKernel<<<grid, block>>>(depthMatRotated_mm, // outputs
+                                                    depthMatTransformed_mm,
+                                                    shadingMaskMat,
+                                                    xIdNewMat,
+                                                    yIdNewMat,
+                                                    posMat_m,           // inputs           
+                                                    width,
+                                                    height,
+                                                    dcmRotation,
+                                                    posTrans_m,
+                                                    useRgbCoeffs);
+
+
+    transformMatsKernel<<<grid, block>>>( depthMatVarTransformed_mm2, // outputs
+                                          colorInDepthMatTransformed,  
+                                          depthMatVar_mm2,            // inputs
+                                          colorMatInput,               
+                                          depthMatRotated_mm,   
+                                          depthMatTransformed_mm,
+                                          shadingMaskMat,
+                                          xIdNewMat,
+                                          yIdNewMat,
+                                          width,
+                                          height);  
+}
+
+
+//-----------------------------------------------------------------------------
+// the RGB camera is at a different location and orientation from the depth reciever
+// compute an RGB image with pixels 1:1 with the depth image (as best as possible using given calibration coefficients)
+extern "C"
 void mapColorDepthToOpenGL(float3 *pointsOut,                     // outputs
                            uchar3 *colorsOut,
                            const cv::cuda::GpuMat depthMat_mm,    // inputs
                            const cv::cuda::GpuMat depthMatVar_mm2,
                            const cv::cuda::GpuMat posMat_m,
                            const cv::cuda::GpuMat normMat,
-                           const cv::cuda::GpuMat colorInDepthMat,
+                           const cv::cuda::GpuMat colorInDepthMat_r,
+                           const cv::cuda::GpuMat colorInDepthMat_g,
+                           const cv::cuda::GpuMat colorInDepthMat_b,
                            const cv::cuda::GpuMat pixelXPosMat,
                            const cv::cuda::GpuMat pixelYPosMat,
                            const unsigned int width,
@@ -850,7 +909,9 @@ void mapColorDepthToOpenGL(float3 *pointsOut,                     // outputs
                                        depthMatVar_mm2,
                                        posMat_m,
                                        normMat,
-                                       colorInDepthMat,
+                                       colorInDepthMat_r,
+                                       colorInDepthMat_g,
+                                       colorInDepthMat_b,
                                        pixelXPosMat,
                                        pixelYPosMat,
                                        width,

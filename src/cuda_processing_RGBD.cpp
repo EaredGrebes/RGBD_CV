@@ -26,24 +26,30 @@
 // defined in <cuda_kernel.cu>
 
 extern "C"
-void syncColorToDepthData( cv::cuda::GpuMat colorInDepthMat,     // outputs
-                           cv::cuda::GpuMat depthMatRotated_mm,
-                           cv::cuda::GpuMat depthMatShaded_mm,
-                           cv::cuda::GpuMat MaskMat,
-                           cv::cuda::GpuMat xIdNewMat,
-                           cv::cuda::GpuMat yIdNewMat,
-                           cv::cuda::GpuMat posMat_m,
-                           const cv::cuda::GpuMat depthMat_mm,   // inputs
-                           const cv::cuda::GpuMat colorMat,
-                           const cv::cuda::GpuMat pixelXPosMat,
-                           const cv::cuda::GpuMat pixelYPosMat,
-                           const unsigned int mesh_width,
-                           const unsigned int mesh_height,
-                           float *dcmDepthtoColor,
-                           float *posDepthToColor_m);   
+void syncColorToDepthData(cv::cuda::GpuMat colorInDepthMat_r,   // outputs
+                          cv::cuda::GpuMat colorInDepthMat_g,
+                          cv::cuda::GpuMat colorInDepthMat_b,
+                          cv::cuda::GpuMat clrInDepthMatBlurred_r,   
+                          cv::cuda::GpuMat clrInDepthMatBlurred_g,
+                          cv::cuda::GpuMat clrInDepthMatBlurred_b,
+                          cv::cuda::GpuMat depthMatRotated_mm,
+                          cv::cuda::GpuMat depthMatShaded_mm,
+                          cv::cuda::GpuMat depthShadedMaskMat,                          
+                          cv::cuda::GpuMat clrShadedMaskMat,
+                          cv::cuda::GpuMat xIdNewMat,
+                          cv::cuda::GpuMat yIdNewMat,
+                          cv::cuda::GpuMat posMat_m,
+                          const cv::cuda::GpuMat depthMat_mm,   // inputs
+                          const cv::cuda::GpuMat colorMat,
+                          const cv::cuda::GpuMat pixelXPosMat,
+                          const cv::cuda::GpuMat pixelYPosMat,
+                          const unsigned int mesh_width,
+                          const unsigned int mesh_height,
+                          float *dcmDepthtoColor,
+                          float *posDepthToColor_m);   
 
 extern "C"
-void transformData(cv::cuda::GpuMat colorInDepthMatTransformed,    // outputs
+void transformData(cv::cuda::GpuMat colorInDepthMatTransformed,  // outputs
                    cv::cuda::GpuMat depthMatVarTransformed_mm2,
                    cv::cuda::GpuMat depthMatTransformed_mm,
                    cv::cuda::GpuMat depthMatRotated_mm,
@@ -63,15 +69,15 @@ void transformData(cv::cuda::GpuMat colorInDepthMatTransformed,    // outputs
                    float *posTrans_m);
 
 extern "C"
-void runDepthKalmanFilters(cv::cuda::GpuMat posMat_m,             // outputs
+void runDepthKalmanFilters(cv::cuda::GpuMat posMat_m,            // outputs
                            cv::cuda::GpuMat convergedMat, 
                            cv::cuda::GpuMat depthMatBlurred,
                            cv::cuda::GpuMat depthMatEdges,
                            cv::cuda::GpuMat posMatSmoothed_m,
                            cv::cuda::GpuMat normMat,
-                           cv::cuda::GpuMat depthMatEst_mm,       // states
+                           cv::cuda::GpuMat depthMatEst_mm,      // states
                            cv::cuda::GpuMat depthMatVar_mm2,
-                           const cv::cuda::GpuMat depthMat_mm,    // inputs
+                           const cv::cuda::GpuMat depthMat_mm,   // inputs
                            const cv::cuda::GpuMat pixelXPosMat,
                            const cv::cuda::GpuMat pixelYPosMat,
                            const unsigned int width,
@@ -84,7 +90,9 @@ void mapColorDepthToOpenGL(float3 *pointsOut,                     // outputs
                            const cv::cuda::GpuMat depthMatVar_mm2,
                            const cv::cuda::GpuMat posMat_mm,
                            const cv::cuda::GpuMat normMat,
-                           const cv::cuda::GpuMat colorInDepthMat,
+                           const cv::cuda::GpuMat colorInDepthMat_r,
+                           const cv::cuda::GpuMat colorInDepthMat_g,
+                           const cv::cuda::GpuMat colorInDepthMat_b,
                            const cv::cuda::GpuMat pixelXPosMat,
                            const cv::cuda::GpuMat pixelYPosMat,
                            const unsigned int width,
@@ -135,9 +143,16 @@ cuda_processing_RGBD::cuda_processing_RGBD(int meshWidth_in,
     // ~~ RGBD image processing ~~ //
     depthMatRotated_mm.create(cv::Size(meshWidth, meshHeight), CV_32S);
     depthMatShaded_mm.create(cv::Size(meshWidth, meshHeight), CV_32S);
-    shadingMaskMat.create(cv::Size(meshWidth, meshHeight), CV_8U);
-    
-    colorInDepthMat.create(cv::Size(meshWidth, meshHeight), CV_8UC3);
+    depthShadedMaskMat.create(cv::Size(meshWidth, meshHeight), CV_32S);
+    clrShadedMaskMat.create(cv::Size(meshWidth, meshHeight), CV_32S);
+
+    colorInDepthMat_r.create(cv::Size(meshWidth, meshHeight), CV_32S);
+    colorInDepthMat_g.create(cv::Size(meshWidth, meshHeight), CV_32S);
+    colorInDepthMat_b.create(cv::Size(meshWidth, meshHeight), CV_32S);
+
+    clrInDepthMatBlurred_r.create(cv::Size(meshWidth, meshHeight), CV_32S);
+    clrInDepthMatBlurred_g.create(cv::Size(meshWidth, meshHeight), CV_32S);
+    clrInDepthMatBlurred_b.create(cv::Size(meshWidth, meshHeight), CV_32S);    
 
     xIdNewMat.create(cv::Size(meshWidth, meshHeight), CV_32S);
     yIdNewMat.create(cv::Size(meshWidth, meshHeight), CV_32S);
@@ -206,31 +221,40 @@ void cuda_processing_RGBD::runCudaProcessing(float3 *pointsOut,    // outputs
 
     // initialize all points to magenta, that way 3-d points that are shaded 
     // and don't have a color will appear visible, figure out how to handle (or fill in) missing color info later.
-    colorInDepthMat.setTo(cv::Scalar(200, 0, 200));
+    colorInDepthMat_r.setTo(200);
+    colorInDepthMat_g.setTo(0);
+    colorInDepthMat_b.setTo(0);
 
     // // for the depth shading to work, this matrix must have initial depth values far away
     depthMatShaded_mm.setTo(depthMax_mm);
 
     // // set the masking vector for the shaded pixels to all 0
-    shadingMaskMat.setTo(0);
+    depthShadedMaskMat.setTo(0);
+    clrShadedMaskMat.setTo(0);
 
     // sync the most recent color image to the updated
     // depth estimates
-    syncColorToDepthData(colorInDepthMat,    // outputs
-                        depthMatRotated_mm,
-                        depthMatShaded_mm,
-                        shadingMaskMat, 
-                        xIdNewMat,
-                        yIdNewMat,
-                        posMat_m,
-                        depthMatEst_mm,      // input
-                        colorMat,
-                        pixelXPosMat,
-                        pixelYPosMat,
-                        meshWidth,
-                        meshHeight,
-                        dcmDepthtoColor,
-                        posDepthToColor_m);
+    syncColorToDepthData(colorInDepthMat_r,  // outputs
+                         colorInDepthMat_g,
+                         colorInDepthMat_b,
+                         clrInDepthMatBlurred_r,
+                         clrInDepthMatBlurred_g,
+                         clrInDepthMatBlurred_b,
+                         depthMatRotated_mm,
+                         depthMatShaded_mm,
+                         depthShadedMaskMat, 
+                         clrShadedMaskMat,
+                         xIdNewMat,
+                         yIdNewMat,
+                         posMat_m,
+                         depthMatEst_mm,      // input
+                         colorMat,
+                         pixelXPosMat,
+                         pixelYPosMat,
+                         meshWidth,
+                         meshHeight,
+                         dcmDepthtoColor,
+                         posDepthToColor_m);
 
     mapColorDepthToOpenGL(pointsOut,      // outputs
                           colorsOut,
@@ -238,7 +262,9 @@ void cuda_processing_RGBD::runCudaProcessing(float3 *pointsOut,    // outputs
                           depthMatVar_mm2,
                           posMat_m,
                           normalMat,
-                          colorInDepthMat,
+                          clrInDepthMatBlurred_r,
+                          clrInDepthMatBlurred_g,
+                          clrInDepthMatBlurred_b,
                           pixelXPosMat,
                           pixelYPosMat,
                           meshWidth,
