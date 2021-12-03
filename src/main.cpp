@@ -252,7 +252,7 @@ void runCudaDisplay(GLFWwindow* window)
         glBindVertexArray(VAO);
 
         // draw each vertex as a point
-        glPointSize(2);
+        glPointSize(3);
         glDrawArrays(GL_POINTS, 0, Npoints);
 
         // put the stuff we've been drawing onto the display
@@ -265,7 +265,7 @@ void runCudaDisplay(GLFWwindow* window)
         if (debug) {
 
             // use openCV to display additional useful images of the data
-            cudaRGBD.colorInDepthMat.download(colorInDepthMat);
+            cudaRGBD.colorInDepthMat_r.download(colorInDepthMat);
             cudaRGBD.colorInDepthMatTransformed.download(colorInDepthMatTransformed);
             cudaRGBD.depthMatEdges.download(likelihoodMat);
             cudaRGBD.depthMatVar_mm2.download(depthMatVar_mm2);
