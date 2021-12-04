@@ -14,7 +14,7 @@ In addition, several low level computer vision routines are implemented in CUDA 
 
 The last cool thing to mention is an image warping routine, which applies a rotation and translation to the whole RGBD data set.  This will generate new RGB and depth images taking into account the perspective change and elementary shading. 
 
-NOTE: this code has only been developed and tested on linux.
+NOTE: this code has only been developed and tested on Ubuntu 20.04 LTS.
 Software requirements:
 - CUDA NVCC compiler release 10.1
 - OpenGL 4.6.0
