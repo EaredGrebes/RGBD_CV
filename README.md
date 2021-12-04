@@ -28,3 +28,9 @@ Beyond code snippets copied from the following sources, everything here is origi
 - I followed this example for writing from CUDA to OpenGL VBOs: https://github.com/NVIDIA/cuda-samples/tree/master/Samples/oceanFFT
 
 
+Here is a sample video (due to size limits it is short and the resolution compressed):
+
+https://user-images.githubusercontent.com/3643303/144727830-fa935c03-999f-464d-9769-5594bbf69f1d.mp4
+
+
+
