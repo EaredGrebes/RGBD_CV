@@ -25,5 +25,6 @@ Beyond code snippets copied from the following sources, everything here is origi
 - Intel Realsense C++ API: https://github.com/IntelRealSense/librealsense
 - LearnOpenGL: https://github.com/JoeyDeVries/LearnOpenGL
 - Fast 3x3 SVD on the GPU (I included the entire file in my src): https://github.com/ericjang/svd3
+- I followed this example for writing from CUDA to OpenGL VBOs: https://github.com/NVIDIA/cuda-samples/tree/master/Samples/oceanFFT
 
 
