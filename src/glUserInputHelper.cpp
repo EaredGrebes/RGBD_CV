@@ -44,7 +44,7 @@ void glUserInputHelper::processInput(GLFWwindow *window, float deltaTime)
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
-    float cameraSpeed = 3.0 * deltaTime;
+    float cameraSpeed = 2.0 * deltaTime;
     if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
         cameraPos += cameraSpeed * cameraFront;
     if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
