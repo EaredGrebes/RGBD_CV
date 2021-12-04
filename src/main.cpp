@@ -253,6 +253,7 @@ void runCudaDisplay(GLFWwindow* window)
 
         // draw each vertex as a point
         glPointSize(3);
+        glEnable(GL_PROGRAM_POINT_SIZE);
         glDrawArrays(GL_POINTS, 0, Npoints);
 
         // put the stuff we've been drawing onto the display

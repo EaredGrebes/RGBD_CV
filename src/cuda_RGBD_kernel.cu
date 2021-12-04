@@ -1,9 +1,5 @@
 #include <math_constants.h>
 #include <opencv2/cudaarithm.hpp>
-#include <librealsense2/rs.hpp> // Include RealSense Cross Platform API
-#include <librealsense2/rsutil.h>
-
-//#include "cuda_computer_vision_kernel.cu"
 #include "cuda_math_helpers.h"
 #include "svd3_cuda.h"
 
