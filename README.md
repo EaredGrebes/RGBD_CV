@@ -4,7 +4,7 @@ The goal of this project was to learn about processing and visualizing color and
 
 The algorithm uses the GPU to:
 - kalman filter the depth measurements (the depth sensor has some interesting wavy distortion pattern)
-- align the RGB color pixels to the depth estimates.  This has to be done because the two sensors are at different locations and have different lens characteristics.  (this code was mostly copied from the Intel Realsense API, but then implemented in CUDA)
+- align the RGB color pixels to the depth estimates.  This has to be done because the two sensors are at different locations and have different lens characteristics.  (this code was mostly copied from the Intel RealSense API, but then implemented in CUDA)
 - visualize the data as an interactive point cloud 
 
 In addition, several low level computer vision routines are implemented in CUDA (learning by doing!)
