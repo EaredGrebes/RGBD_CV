@@ -49,12 +49,17 @@ public:
 	cv::cuda::GpuMat depthMatPrev_mm;
 
 	// ~~ states ~~ //
+    // kalman filters for each depth pixel
+	cv::cuda::GpuMat depthMatEst_mm;
+	cv::cuda::GpuMat depthMatVar_mm2;
 
 	// for transforming shading RGBD images
 	cv::cuda::GpuMat depthMatRotated_mm;
 	cv::cuda::GpuMat depthMatShaded_mm;
 	cv::cuda::GpuMat depthShadedMaskMat;
 	cv::cuda::GpuMat clrShadedMaskMat;
+	cv::cuda::GpuMat clrShadedMaskBlurMat;
+	cv::cuda::GpuMat colorInDepthMat;
 
 	cv::cuda::GpuMat colorInDepthMat_r;  // why split these into rgb? because I can't figure out how to loop through vector components in cuda (.x, .y, .z)
 	cv::cuda::GpuMat colorInDepthMat_g;
@@ -73,12 +78,6 @@ public:
 
 	cv::cuda::GpuMat posMat_m;
 	cv::cuda::GpuMat posMatSmoothed_m;
-
-	Eigen::Matrix<float,Nopt,1> xOpt;    // for optimization problem
-
-	// kalman filters for each depth pixel
-	cv::cuda::GpuMat depthMatEst_mm;
-	cv::cuda::GpuMat depthMatVar_mm2;
 
 	// ~~ outputs ~~ //
 	cv::cuda::GpuMat convergedMat;

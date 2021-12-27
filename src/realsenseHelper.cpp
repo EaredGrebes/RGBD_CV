@@ -117,6 +117,11 @@ realsenseHelper::realsenseHelper(int meshWidth, int meshHeight) {
     clrIntrinsics = pipeProfile.get_stream(RS2_STREAM_COLOR).as<rs2::video_stream_profile>().get_intrinsics();
     sensorExtrinsics = pipeProfile.get_stream(RS2_STREAM_DEPTH).get_extrinsics_to(pipeProfile.get_stream(RS2_STREAM_COLOR));
 
+    // Testing: modify translation to better match observed shadowing from depth/color corelation
+    //sensorExtrinsics.translation[0] = sensorExtrinsics.translation[0] + 0.0033;
+    //sensorExtrinsics.translation[1] = sensorExtrinsics.translation[1] - 0.002;
+    //sensorExtrinsics.translation[2] = sensorExtrinsics.translation[2] - 0.002;
+
     std::cout << "\n\n depth sensor \n\n" << std::endl;
     displaySensorInfo(depthIntrinsics);
 

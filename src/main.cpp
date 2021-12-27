@@ -39,7 +39,6 @@
 unsigned int windowW = 1700, windowH = 900;
 
 const unsigned int meshWidth    = 848;
-//const unsigned int meshWidth    = 640;
 const unsigned int meshHeight   = 480;
 const unsigned int Npoints = meshWidth * meshHeight;
 
@@ -274,32 +273,33 @@ void runCudaDisplay(GLFWwindow* window)
             double min, max;
             cv::minMaxLoc(depthMatVar_mm2, &min, &max);
             float mean = cv::mean( depthMatVar_mm2 )[0];
+            std::cout << "mean variance (mm): " << mean << std::endl;
 
-            cv::Mat tmp1 = depthMatVar_mm2 * 255 / 2000;
-            tmp1.convertTo(depthVarMat_grey, CV_8U);
+            // cv::Mat tmp1 = depthMatVar_mm2 * 255 / 2000;
+            // tmp1.convertTo(depthVarMat_grey, CV_8U);
 
-            cv::Mat tmp2 = likelihoodMat *255;
-            tmp2.convertTo(likelihoodMat_grey, CV_8U);
+            // cv::Mat tmp2 = likelihoodMat *255;
+            // tmp2.convertTo(likelihoodMat_grey, CV_8U);
 
-            cv::Mat tmp3 = depthTransformed;
-            tmp3.convertTo(depthMat_grey, CV_8U);
+            // cv::Mat tmp3 = depthTransformed;
+            // tmp3.convertTo(depthMat_grey, CV_8U);
 
-            cv::Mat tmp4 = convergedMat * 255;
+            // cv::Mat tmp4 = convergedMat * 255;
 
-            cv::imshow("raw color image", realsenseHelper.colorMat);
-            cv::imshow("raw depth image", realsenseHelper.depthGreyMat);
-            cv::imshow("color in Depth image", colorInDepthMat);
-            cv::imshow("Color in depth transformed", colorInDepthMatTransformed);
-            cv::imshow("edge mat", likelihoodMat_grey);
-            cv::imshow("depth var mat", depthVarMat_grey);
-            cv::imshow("residual mat", tmp4);
+            // cv::imshow("raw color image", realsenseHelper.colorMat);
+            // cv::imshow("raw depth image", realsenseHelper.depthGreyMat);
+            // cv::imshow("color in Depth image", colorInDepthMat);
+            // cv::imshow("Color in depth transformed", colorInDepthMatTransformed);
+            // cv::imshow("edge mat", likelihoodMat_grey);
+            // cv::imshow("depth var mat", depthVarMat_grey);
+            // cv::imshow("residual mat", tmp4);
 
-            // for some reason opecv needs this
-            int key = cv::waitKey(20);
-            if (key == 'q') {
-                std::cout << "q key is pressed by the user. Stopping the video" << std::endl;
-                break;
-            }
+            // // for some reason opecv needs this
+            // int key = cv::waitKey(20);
+            // if (key == 'q') {
+            //     std::cout << "q key is pressed by the user. Stopping the video" << std::endl;
+            //     break;
+            // }
         }
     }
 
