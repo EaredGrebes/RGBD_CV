@@ -43,15 +43,25 @@ public:
 	float initDepthVar_mm2;
 	int depthMax_mm;
 
-	// ~~ inputs ~~ //
+	// inputs
 	cv::cuda::GpuMat colorMat;
 	cv::cuda::GpuMat depthMat_mm;
 	cv::cuda::GpuMat depthMatPrev_mm;
 
-	// ~~ states ~~ //
-    // kalman filters for each depth pixel
+    // depth proecessing
 	cv::cuda::GpuMat depthMatEst_mm;
 	cv::cuda::GpuMat depthMatVar_mm2;
+
+	cv::cuda::GpuMat convergedMaskMat;
+	cv::cuda::GpuMat normalMat;
+	cv::cuda::GpuMat depthMatBlurred;
+	cv::cuda::GpuMat edgeMaskMat;
+
+	cv::cuda::GpuMat posMat_m;
+	cv::cuda::GpuMat posMatSmoothed_m;
+
+	cv::cuda::GpuMat depthMat8L_mm;
+	cv::cuda::GpuMat depthMat8U_mm;
 
 	// for transforming shading RGBD images
 	cv::cuda::GpuMat depthMatRotated_mm;
@@ -72,18 +82,11 @@ public:
 	cv::cuda::GpuMat xIdNewMat;
 	cv::cuda::GpuMat yIdNewMat;
 
+	// transforming data
 	cv::cuda::GpuMat depthMatTransformed_mm;
 	cv::cuda::GpuMat colorInDepthMatTransformed;
 	cv::cuda::GpuMat depthMatVarTransformed_mm2;
 
-	cv::cuda::GpuMat posMat_m;
-	cv::cuda::GpuMat posMatSmoothed_m;
-
-	// ~~ outputs ~~ //
-	cv::cuda::GpuMat convergedMat;
-	cv::cuda::GpuMat normalMat;
-	cv::cuda::GpuMat depthMatBlurred;
-	cv::cuda::GpuMat depthMatEdges;
 
 	float *dcmRotation;
 	float *posTranslation_m;

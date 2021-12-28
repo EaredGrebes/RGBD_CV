@@ -3,11 +3,15 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <iostream>
+#include <thread>
+#include <mutex>
 
 // opencv
 #include <opencv2/opencv.hpp>
 //#include <opencv2/cudaarithm.hpp>
 #include "opencv2/core/cuda.hpp"
+#include "opencv2/videoio.hpp"
 
 // openGL
 #include <GL/glew.h> // include GLEW and new version of GL on Windows
@@ -58,15 +62,17 @@ float frameRateTimeConst = 0.95f;
 
 // openCV
 cv::Mat colorInDepthMat(cv::Size(meshWidth, meshHeight), CV_8UC3);
-cv::Mat colorInDepthMatTransformed(cv::Size(meshWidth, meshHeight), CV_8UC3);
-
-cv::Mat depthTransformed(cv::Size(meshWidth, meshHeight), CV_32S);
-cv::Mat depthVarMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
-cv::Mat likelihoodMat(cv::Size(meshWidth, meshHeight), CV_32F);
-cv::Mat likelihoodMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
-cv::Mat depthMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
-cv::Mat depthMatVar_mm2(cv::Size(meshWidth, meshHeight), CV_32F);
-cv::Mat convergedMat(cv::Size(meshWidth, meshHeight), CV_8U);
+cv::Mat posMat_m(cv::Size(meshWidth, meshHeight), CV_32FC3);
+cv::Mat edgeMaskMat(cv::Size(meshWidth, meshHeight), CV_8U);
+cv::Mat depthMat8L_mm(cv::Size(meshWidth, meshHeight), CV_8U);
+cv::Mat depthMat8U_mm(cv::Size(meshWidth, meshHeight), CV_8U);
+//cv::Mat depthTransformed(cv::Size(meshWidth, meshHeight), CV_32S);
+//cv::Mat depthVarMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
+//cv::Mat likelihoodMat(cv::Size(meshWidth, meshHeight), CV_32F);
+//cv::Mat likelihoodMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
+//cv::Mat depthMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
+//cv::Mat depthMatVar_mm2(cv::Size(meshWidth, meshHeight), CV_32F);
+//cv::Mat convergedMat(cv::Size(meshWidth, meshHeight), CV_8U);
 
 // custom objects
 GLFWwindow* window;
@@ -78,15 +84,30 @@ glUserInputHelper usrInput;
 cuda_processing_RGBD cudaRGBD(meshWidth, 
                               meshHeight,
                               realsenseHelper.sensorExtrinsics.rotation, 
-                              realsenseHelper.sensorExtrinsics.translation);                      
+                              realsenseHelper.sensorExtrinsics.translation);  
 
+// video capture
+//bool isCololor = true;
+//int fourcc = cv::VideoWriter::fourcc('M','J','P','G');
+//int fourcc = cv::VideoWriter::fourcc('F', 'F', 'V', '1');
+//int fourcc = cv::VideoWriter::fourcc('F','M','P','4');
+//int fourcc = cv::VideoWriter::fourcc('p', 'n', 'g', ' ');
+//cv::VideoWriter videoCapture1("videoCaptureTest1.avi", fourcc, 60, cv::Size(meshWidth, meshHeight), isCololor);
+//cv::VideoWriter videoCapture2("videoCaptureTest2.avi", fourcc, 60, cv::Size(meshWidth, meshHeight), isCololor);
+
+cv::VideoWriter videoCaptureRGB("data/videoCaptureTest1.avi", cv::VideoWriter::fourcc('M','J','P','G'), 60, cv::Size(meshWidth, meshHeight), true);
+cv::VideoWriter videoCaptureDL("data/videoCaptureTest2.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
+cv::VideoWriter videoCaptureDU("data/videoCaptureTest3.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
 
 ////////////////////////////////////////////////////////////////////////////////
 // forward declarations
 ////////////////////////////////////////////////////////////////////////////////
 
 bool initGL(GLuint &shaderProg, GLFWwindow* &window);
-void runCudaDisplay(GLFWwindow* window);
+
+void threadWriteVideo(cv::VideoWriter &writer, bool &newDataFlag, std::mutex &mutex, cv::Mat &matIn);
+
+void runMainLoop(GLFWwindow* window);
 
 // static function wrappers for glfw callbacks
 void framebuffer_size_callback(GLFWwindow* window, int width, int height){
@@ -130,7 +151,7 @@ int main(int argc, char **argv)
     findCudaDevice(argc, (const char **)argv);
 
     // start rendering mainloop
-    runCudaDisplay(window);
+    runMainLoop(window);
 
     // glfw: terminate, clearing all previously allocated GLFW resources
     glfwTerminate();
@@ -141,7 +162,7 @@ int main(int argc, char **argv)
 ////////////////////////////////////////////////////////////////////////////////
 // runRealsenseDisplay
 ////////////////////////////////////////////////////////////////////////////////
-void runCudaDisplay(GLFWwindow* window)
+void runMainLoop(GLFWwindow* window)
 {
 
     float vertices[Npoints*3] = {};
@@ -177,9 +198,13 @@ void runCudaDisplay(GLFWwindow* window)
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cuda_3dPointVB_resource, points_VBO, cudaGraphicsMapFlagsWriteDiscard));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cuda_colorVB_resource, colors_VBO, cudaGraphicsMapFlagsWriteDiscard));
 
-
-    // const auto window_name = "Display Image";
-    // cv::namedWindow(window_name, cv::WINDOW_AUTOSIZE);
+    bool newDataFlag1 = false;
+    bool newDataFlag2 = false;
+    bool newDataFlag3 = false;
+    std::mutex mutex;
+    std::thread videoWriteThread1(threadWriteVideo, std::ref(videoCaptureRGB), std::ref(newDataFlag1), std::ref(mutex), std::ref(colorInDepthMat));
+    std::thread videoWriteThread2(threadWriteVideo, std::ref(videoCaptureDL), std::ref(newDataFlag2), std::ref(mutex), std::ref(depthMat8L_mm));
+    std::thread videoWriteThread3(threadWriteVideo, std::ref(videoCaptureDU), std::ref(newDataFlag3), std::ref(mutex), std::ref(depthMat8U_mm));
 
     // The main render loop
     while (!glfwWindowShouldClose(window)) {
@@ -211,17 +236,38 @@ void runCudaDisplay(GLFWwindow* window)
             checkCudaErrors(cudaGraphicsMapResources(1, &cuda_colorVB_resource, 0));
             checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&colorPointsPtr, &num_bytes, cuda_colorVB_resource));
 
-            // map processed data to the vertex and color arrays
+            // run a bunch of low level processing on cuda, but the main outputs are:
+            // * sync color data to location of depth pixels
+            // * color and vertex aray data for openGL
             cudaRGBD.runCudaProcessing(vertexPointsPtr, colorPointsPtr);
 
             checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_3dPointVB_resource, 0));
             checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_colorVB_resource, 0));
 
+            // calculate frame rate, display to title of window
             deltaTime_sec = time_sec - lastFrameTime_sec;
             lastFrameTime_sec = time_sec;
             frameRateFilt = (frameRateTimeConst) * frameRateFilt + (1-frameRateTimeConst) * (1.0f/deltaTime_sec);
             std::string str = "3D Image, fps: " + std::to_string(frameRateFilt);
             glfwSetWindowTitle(window, str.c_str());
+
+            // start video frame capture thread
+            cudaRGBD.colorInDepthMat.download(colorInDepthMat);
+            cudaRGBD.depthMat8L_mm.download(depthMat8L_mm);
+            cudaRGBD.depthMat8U_mm.download(depthMat8U_mm);
+
+            //cv::Mat tmp1;
+            //cudaRGBD.edgeMaskMat.download(tmp1);
+            //tmp1 *= 255;
+            //tmp1.convertTo(edgeMaskMat, CV_8U);
+
+            mutex.lock();
+            if ((newDataFlag1 == false) && (newDataFlag2 == false) && (newDataFlag3 == false)) {
+                newDataFlag1 = true;
+                newDataFlag2 = true;
+                newDataFlag3 = true;
+            }
+            mutex.unlock();
         }
 
         // model/view/perspective matrix
@@ -265,15 +311,21 @@ void runCudaDisplay(GLFWwindow* window)
         if (debug) {
 
             // use openCV to display additional useful images of the data
-            cudaRGBD.colorInDepthMat_r.download(colorInDepthMat);
-            cudaRGBD.colorInDepthMatTransformed.download(colorInDepthMatTransformed);
-            cudaRGBD.depthMatEdges.download(likelihoodMat);
-            cudaRGBD.depthMatVar_mm2.download(depthMatVar_mm2);
+            //cudaRGBD.posMat_m.download(posMat_m);
 
-            double min, max;
-            cv::minMaxLoc(depthMatVar_mm2, &min, &max);
-            float mean = cv::mean( depthMatVar_mm2 )[0];
-            std::cout << "mean variance (mm): " << mean << std::endl;
+            //cv::Mat tmp1;
+            //cudaRGBD.edgeMaskMat.download(tmp1);
+            //tmp1 *= 255;
+            //tmp1.convertTo(edgeMaskScaledMat, CV_8U);
+
+            //cudaRGBD.colorInDepthMatTransformed.download(colorInDepthMatTransformed);
+            //cudaRGBD.depthMatEdges.download(likelihoodMat);
+            //cudaRGBD.depthMatVar_mm2.download(depthMatVar_mm2);
+
+            //double min, max;
+            //cv::minMaxLoc(depthMatVar_mm2, &min, &max);
+            //float mean = cv::mean( depthMatVar_mm2 )[0];
+            //std::cout << "mean variance (mm): " << mean << std::endl;
 
             // cv::Mat tmp1 = depthMatVar_mm2 * 255 / 2000;
             // tmp1.convertTo(depthVarMat_grey, CV_8U);
@@ -284,22 +336,27 @@ void runCudaDisplay(GLFWwindow* window)
             // cv::Mat tmp3 = depthTransformed;
             // tmp3.convertTo(depthMat_grey, CV_8U);
 
-            // cv::Mat tmp4 = convergedMat * 255;
-
-            // cv::imshow("raw color image", realsenseHelper.colorMat);
-            // cv::imshow("raw depth image", realsenseHelper.depthGreyMat);
-            // cv::imshow("color in Depth image", colorInDepthMat);
             // cv::imshow("Color in depth transformed", colorInDepthMatTransformed);
             // cv::imshow("edge mat", likelihoodMat_grey);
             // cv::imshow("depth var mat", depthVarMat_grey);
             // cv::imshow("residual mat", tmp4);
 
-            // // for some reason opecv needs this
-            // int key = cv::waitKey(20);
-            // if (key == 'q') {
-            //     std::cout << "q key is pressed by the user. Stopping the video" << std::endl;
-            //     break;
-            // }
+            //threadWriteVideo(&videoCapture1, &newDataFlag, colorInDepthMat);
+
+            //videoCapture1.write(colorInDepthMat);
+            //videoCapture2.write(realsenseHelper.colorMat);
+
+            //cv::imshow("raw color image", realsenseHelper.colorMat);
+            //cv::imshow("raw depth image", realsenseHelper.depthGreyMat);
+            //cv::imshow("color in Depth image", colorInDepthMat);
+            //cv::imshow("edge mask", edgeMaskScaledMat);
+
+            // for some reason opecv needs this
+            int key = cv::waitKey(1);
+            if (key == 'q') {
+                std::cout << "q key is pressed by the user. Stopping the video" << std::endl;
+                break;
+            }
         }
     }
 
@@ -309,6 +366,9 @@ void runCudaDisplay(GLFWwindow* window)
     glDeleteBuffers(1, &colors_VBO);
     glDeleteProgram(shaderProgram);
 
+    videoCaptureRGB.release();
+    videoCaptureDL.release();
+    videoCaptureDU.release();
     cv::destroyAllWindows();
 }
 
@@ -370,3 +430,30 @@ bool initGL(GLuint &shaderProgram, GLFWwindow* &window)
     return true;
 }
 
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Threaded function uses a VideoWriter object opened in the main thread
+////////////////////////////////////////////////////////////////////////////////
+void threadWriteVideo(cv::VideoWriter &writer, bool &newDataFlag, std::mutex &mutex, cv::Mat &matIn)
+{
+    // if (true == *newDataFlag){
+    //     writer->write(matIn);
+    //     *newDataFlag = false; 
+    // }
+    
+    while (true)
+    {
+        if (true == newDataFlag){
+
+            mutex.lock();
+            newDataFlag = false; 
+            mutex.unlock();
+
+            writer.write(matIn);
+            
+        }
+    }
+
+    return;
+}

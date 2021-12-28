@@ -10,5 +10,5 @@ uniform mat4 ModelViewProjectionMat;
 void main()
 {
     gl_Position = ModelViewProjectionMat * vec4(aPos, 1.0);
-    ourColor = vec4(aColor / 255, 1.0);
+    ourColor = vec4(aColor.zyx/255, 1.0);
 }
