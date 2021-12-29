@@ -28,6 +28,9 @@ glUserInputHelper::glUserInputHelper() {
     firstMouse = true;
     leftButtonPressed = false;
     rightButtonPressed = false;
+    startRecord = false;
+    stopRecord = false;
+
     yaw   = -90.0f;   // yaw is initialized to -90.0 degrees since a yaw of 0.0 results in a direction vector pointing to the right so we initially rotate a bit to the left.
     pitch =  0.0f;
     lastX =  800.0f / 2.0;
@@ -53,6 +56,20 @@ void glUserInputHelper::processInput(GLFWwindow *window, float deltaTime)
         cameraPos -= glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
     if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
         cameraPos += glm::normalize(glm::cross(cameraFront, cameraUp)) * cameraSpeed;
+
+    if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS){
+        if ((false == startRecord) && (false == stopRecord)){
+            std::cout << "STARTED RECORDING" << std::endl;
+        }
+        startRecord = true;
+    }
+       
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS){
+        if ((true == startRecord) && (false == stopRecord)){
+            std::cout << "STOPPED RECORDING" << std::endl;
+        }
+        stopRecord = true;
+    }
 }
 
 

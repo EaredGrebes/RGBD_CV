@@ -8,24 +8,24 @@ TARGET   := RGBD_CV
 
 CXX      := g++
 #CXXFLAGS := -Wall -Wextra -DGL_GLEXT_PROTOTYPES
-CXXFLAGS := -Wall -Wextra 
+CXXFLAGS := -Wall -Wextra
 
 INCLUDE  := -I./include \
             -I/usr/include/ \
 			-I/usr/local/include \
 			-I/usr/local/include/opencv4 \
 			-I../../common/inc \
-			-I/usr/local/cuda-11.4/samples/common/inc \
-			-I/usr/local/cuda-11.4/include
+			-I/usr/local/cuda-11.5/samples/common/inc \
+			-I/usr/local/cuda-11.5/include
 
 LIBDIRS  := -L/usr/lib  \
 			-L/usr/local/lib \
-			-L/usr/local/cuda-11.4/lib64			
+			-L/usr/local/cuda-11.5/lib64			
 
 SRC      :=                      \
 	$(wildcard src/*.cpp)        \
 
-CVLIBS	:= -lopencv_core -lopencv_imgproc -lopencv_highgui 
+CVLIBS	:= -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_videoio
 MISCLIBS:= -lm -lstdc++ -lm -lglfw -lGL -lX11 -lpthread -lXrandr -lXi -lGLEW -lrealsense2
 LDFLAGS	:=	$(LIBDIRS) $(MISCLIBS) $(CVLIBS) -lcuda -lcublas -lcurand -lcudart
 
@@ -36,7 +36,7 @@ DEPENDENCIES := $(OBJECTS:.o=.d)
 
 ############################################################
 # some CUDA stuff
-CUDA_PATH ?= /usr/local/cuda-11.4
+CUDA_PATH ?= /usr/local/cuda-11.5
 TARGET_SIZE := 64
 
 NVCC	:= $(CUDA_PATH)/bin/nvcc -ccbin $(CXX)

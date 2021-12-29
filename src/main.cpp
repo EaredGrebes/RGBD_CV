@@ -3,11 +3,15 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <iostream>
+#include <thread>
+#include <mutex>
 
 // opencv
 #include <opencv2/opencv.hpp>
 //#include <opencv2/cudaarithm.hpp>
 #include "opencv2/core/cuda.hpp"
+#include "opencv2/videoio.hpp"
 
 // openGL
 #include <GL/glew.h> // include GLEW and new version of GL on Windows
@@ -48,25 +52,18 @@ struct cudaGraphicsResource *cuda_3dPointVB_resource; // handles OpenGL-CUDA exc
 struct cudaGraphicsResource *cuda_colorVB_resource;
 GLuint shaderProgram;
 
-bool runCudaRenderTest = false;
-
 // timing
 float deltaTime_sec = 0.0f; // time between current frame and last frame
 float lastFrameTime_sec = 0.0f;
 float frameRateFilt = 0.0f;
 float frameRateTimeConst = 0.95f;
 
-// openCV
+// openCV - data for display and saving
 cv::Mat colorInDepthMat(cv::Size(meshWidth, meshHeight), CV_8UC3);
-cv::Mat colorInDepthMatTransformed(cv::Size(meshWidth, meshHeight), CV_8UC3);
-
-cv::Mat depthTransformed(cv::Size(meshWidth, meshHeight), CV_32S);
-cv::Mat depthVarMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
-cv::Mat likelihoodMat(cv::Size(meshWidth, meshHeight), CV_32F);
-cv::Mat likelihoodMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
-cv::Mat depthMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
-cv::Mat depthMatVar_mm2(cv::Size(meshWidth, meshHeight), CV_32F);
-cv::Mat convergedMat(cv::Size(meshWidth, meshHeight), CV_8U);
+cv::Mat depthMat8L_mm(cv::Size(meshWidth, meshHeight), CV_8U);
+cv::Mat depthMat8U_mm(cv::Size(meshWidth, meshHeight), CV_8U);
+cv::Mat posMat_m(cv::Size(meshWidth, meshHeight), CV_32FC3);
+cv::Mat edgeMaskMat(cv::Size(meshWidth, meshHeight), CV_8U);
 
 // custom objects
 GLFWwindow* window;
@@ -78,7 +75,23 @@ glUserInputHelper usrInput;
 cuda_processing_RGBD cudaRGBD(meshWidth, 
                               meshHeight,
                               realsenseHelper.sensorExtrinsics.rotation, 
-                              realsenseHelper.sensorExtrinsics.translation);                      
+                              realsenseHelper.sensorExtrinsics.translation);  
+
+// video capture, which uses multi-threading
+bool newDataFlag1 = false;
+bool newDataFlag2 = false;
+bool newDataFlag3 = false;
+bool startRecord = false;
+bool stopRecord = false;
+std::mutex mutex;
+//int fourcc = cv::VideoWriter::fourcc('M','J','P','G');
+//int fourcc = cv::VideoWriter::fourcc('F', 'F', 'V', '1');
+//int fourcc = cv::VideoWriter::fourcc('F','M','P','4');
+//int fourcc = cv::VideoWriter::fourcc('p', 'n', 'g', ' ');
+// last argument is if it's color or not
+cv::VideoWriter videoCaptureRGB("data/videoCaptureTest1.avi", cv::VideoWriter::fourcc('M','J','P','G'), 60, cv::Size(meshWidth, meshHeight), true);
+cv::VideoWriter videoCaptureDL("data/videoCaptureTest2.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
+cv::VideoWriter videoCaptureDU("data/videoCaptureTest3.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -86,7 +99,15 @@ cuda_processing_RGBD cudaRGBD(meshWidth,
 ////////////////////////////////////////////////////////////////////////////////
 
 bool initGL(GLuint &shaderProg, GLFWwindow* &window);
-void runCudaDisplay(GLFWwindow* window);
+
+void threadWriteVideo(cv::VideoWriter &writer, 
+                      bool &newDataFlag, 
+                      bool &startRecord, 
+                      bool &stopRecord, 
+                      std::mutex &mutex, 
+                      cv::Mat &matIn);
+
+void runMainLoop(GLFWwindow* window);
 
 // static function wrappers for glfw callbacks
 void framebuffer_size_callback(GLFWwindow* window, int width, int height){
@@ -130,7 +151,7 @@ int main(int argc, char **argv)
     findCudaDevice(argc, (const char **)argv);
 
     // start rendering mainloop
-    runCudaDisplay(window);
+    runMainLoop(window);
 
     // glfw: terminate, clearing all previously allocated GLFW resources
     glfwTerminate();
@@ -139,9 +160,9 @@ int main(int argc, char **argv)
 
 
 ////////////////////////////////////////////////////////////////////////////////
-// runRealsenseDisplay
+// runMainLoop
 ////////////////////////////////////////////////////////////////////////////////
-void runCudaDisplay(GLFWwindow* window)
+void runMainLoop(GLFWwindow* window)
 {
 
     float vertices[Npoints*3] = {};
@@ -177,15 +198,37 @@ void runCudaDisplay(GLFWwindow* window)
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cuda_3dPointVB_resource, points_VBO, cudaGraphicsMapFlagsWriteDiscard));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cuda_colorVB_resource, colors_VBO, cudaGraphicsMapFlagsWriteDiscard));
 
+    // multi-threading for the video capture
+    std::thread videoWriteThread1(threadWriteVideo, 
+                                  std::ref(videoCaptureRGB), 
+                                  std::ref(newDataFlag1), 
+                                  std::ref(startRecord),
+                                  std::ref(stopRecord),
+                                  std::ref(mutex), 
+                                  std::ref(colorInDepthMat));
 
-    // const auto window_name = "Display Image";
-    // cv::namedWindow(window_name, cv::WINDOW_AUTOSIZE);
+    std::thread videoWriteThread2(threadWriteVideo, 
+                                  std::ref(videoCaptureDL), 
+                                  std::ref(newDataFlag2), 
+                                  std::ref(startRecord),
+                                  std::ref(stopRecord),                                  
+                                  std::ref(mutex), 
+                                  std::ref(depthMat8L_mm));
+
+    std::thread videoWriteThread3(threadWriteVideo, 
+                                  std::ref(videoCaptureDU), 
+                                  std::ref(newDataFlag3), 
+                                  std::ref(startRecord),
+                                  std::ref(stopRecord),                                  
+                                  std::ref(mutex), 
+                                  std::ref(depthMat8U_mm));
 
     // The main render loop
     while (!glfwWindowShouldClose(window)) {
 
         // key inputs
         usrInput.processInput(window, deltaTime_sec);
+
 
         // get simulation time
         float time_sec = static_cast< float >( glfwGetTime() );
@@ -211,18 +254,45 @@ void runCudaDisplay(GLFWwindow* window)
             checkCudaErrors(cudaGraphicsMapResources(1, &cuda_colorVB_resource, 0));
             checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&colorPointsPtr, &num_bytes, cuda_colorVB_resource));
 
-            // map processed data to the vertex and color arrays
+            // run a bunch of low level processing on cuda, but the main outputs are:
+            // * sync color data to location of depth pixels
+            // * color and vertex aray data for openGL
             cudaRGBD.runCudaProcessing(vertexPointsPtr, colorPointsPtr);
 
             checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_3dPointVB_resource, 0));
             checkCudaErrors(cudaGraphicsUnmapResources(1, &cuda_colorVB_resource, 0));
 
+            // calculate frame rate, display to title of window
             deltaTime_sec = time_sec - lastFrameTime_sec;
             lastFrameTime_sec = time_sec;
             frameRateFilt = (frameRateTimeConst) * frameRateFilt + (1-frameRateTimeConst) * (1.0f/deltaTime_sec);
             std::string str = "3D Image, fps: " + std::to_string(frameRateFilt);
             glfwSetWindowTitle(window, str.c_str());
-        }
+            
+            // wait for all the threads to finish their video saving process
+            if (usrInput.startRecord) {
+                if ((newDataFlag1 == false) && (newDataFlag2 == false) && (newDataFlag3 == false)) {
+
+                    // start video frame capture threads, lock the shared memory sources
+                    mutex.lock();
+
+                    // check to see if recording should start or stop
+                    startRecord = usrInput.startRecord;
+                    stopRecord = usrInput.stopRecord;
+
+                    // download images from gpu to cpu
+                    cudaRGBD.colorInDepthMat.download(colorInDepthMat);
+                    cudaRGBD.depthMat8L_mm.download(depthMat8L_mm);
+                    cudaRGBD.depthMat8U_mm.download(depthMat8U_mm);
+
+                    newDataFlag1 = true;
+                    newDataFlag2 = true;
+                    newDataFlag3 = true;
+
+                    mutex.unlock();
+                }
+            }
+        } // end of new realSense input
 
         // model/view/perspective matrix
         glm::mat4 ModelMat(1.0);
@@ -265,41 +335,22 @@ void runCudaDisplay(GLFWwindow* window)
         if (debug) {
 
             // use openCV to display additional useful images of the data
-            cudaRGBD.colorInDepthMat_r.download(colorInDepthMat);
-            cudaRGBD.colorInDepthMatTransformed.download(colorInDepthMatTransformed);
-            cudaRGBD.depthMatEdges.download(likelihoodMat);
-            cudaRGBD.depthMatVar_mm2.download(depthMatVar_mm2);
+            cv::Mat tmp1;
+            cudaRGBD.edgeMaskMat.download(tmp1);
+            tmp1 *= 255;
+            tmp1.convertTo(edgeMaskMat, CV_8U);
 
-            double min, max;
-            cv::minMaxLoc(depthMatVar_mm2, &min, &max);
-            float mean = cv::mean( depthMatVar_mm2 )[0];
-            std::cout << "mean variance (mm): " << mean << std::endl;
+            //cv::imshow("raw color image", realsenseHelper.colorMat);
+            //cv::imshow("raw depth image", realsenseHelper.depthGreyMat);
+            //cv::imshow("color in Depth image", colorInDepthMat);
+            cv::imshow("edge mask", edgeMaskMat);
 
-            // cv::Mat tmp1 = depthMatVar_mm2 * 255 / 2000;
-            // tmp1.convertTo(depthVarMat_grey, CV_8U);
-
-            // cv::Mat tmp2 = likelihoodMat *255;
-            // tmp2.convertTo(likelihoodMat_grey, CV_8U);
-
-            // cv::Mat tmp3 = depthTransformed;
-            // tmp3.convertTo(depthMat_grey, CV_8U);
-
-            // cv::Mat tmp4 = convergedMat * 255;
-
-            // cv::imshow("raw color image", realsenseHelper.colorMat);
-            // cv::imshow("raw depth image", realsenseHelper.depthGreyMat);
-            // cv::imshow("color in Depth image", colorInDepthMat);
-            // cv::imshow("Color in depth transformed", colorInDepthMatTransformed);
-            // cv::imshow("edge mat", likelihoodMat_grey);
-            // cv::imshow("depth var mat", depthVarMat_grey);
-            // cv::imshow("residual mat", tmp4);
-
-            // // for some reason opecv needs this
-            // int key = cv::waitKey(20);
-            // if (key == 'q') {
-            //     std::cout << "q key is pressed by the user. Stopping the video" << std::endl;
-            //     break;
-            // }
+            // for some reason opecv needs this
+            int key = cv::waitKey(1);
+            if (key == 'q') {
+                std::cout << "q key is pressed by the user. Stopping the video" << std::endl;
+                break;
+            }
         }
     }
 
@@ -309,6 +360,18 @@ void runCudaDisplay(GLFWwindow* window)
     glDeleteBuffers(1, &colors_VBO);
     glDeleteProgram(shaderProgram);
 
+    // stop the video recording, and finish the threads
+    mutex.lock();
+    stopRecord = true;
+    mutex.unlock();
+
+    videoWriteThread1.join();
+    videoWriteThread2.join();
+    videoWriteThread3.join();
+
+    videoCaptureRGB.release();
+    videoCaptureDL.release();
+    videoCaptureDU.release();
     cv::destroyAllWindows();
 }
 
@@ -329,7 +392,7 @@ bool initGL(GLuint &shaderProgram, GLFWwindow* &window)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    window = glfwCreateWindow(meshWidth, meshHeight, "Ocean V3", NULL, NULL);
+    window = glfwCreateWindow(meshWidth, meshHeight, "3D realsense display", NULL, NULL);
 
     if (!window) {
         fprintf(stderr, "ERROR: could not open window with GLFW3\n");
@@ -370,3 +433,33 @@ bool initGL(GLuint &shaderProgram, GLFWwindow* &window)
     return true;
 }
 
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Threaded function uses a VideoWriter object opened in the main thread
+////////////////////////////////////////////////////////////////////////////////
+void threadWriteVideo(cv::VideoWriter &writer, 
+                      bool &newDataFlag, 
+                      bool &startRecord, 
+                      bool &stopRecord, 
+                      std::mutex &mutex, 
+                      cv::Mat &matIn)
+{
+
+    while (true)
+    {
+        if ((true == newDataFlag) && (true == startRecord)){
+
+            writer.write(matIn);
+
+            mutex.lock();
+            newDataFlag = false; 
+            mutex.unlock();
+        }
+
+        // check to see if thread should finish
+        if (true == stopRecord){
+            return;
+        }
+    }
+}

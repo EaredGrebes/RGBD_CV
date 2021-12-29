@@ -108,8 +108,8 @@ realsenseHelper::realsenseHelper(int meshWidth, int meshHeight) {
     //pipe.start();
     rs2::config cfg;
     //cfg.enable_stream(RS2_STREAM_DEPTH, 1280, 720, RS2_FORMAT_Z16, 15);
-    cfg.enable_stream(RS2_STREAM_DEPTH, meshWidth, meshHeight, RS2_FORMAT_Z16, 30);
-    cfg.enable_stream(RS2_STREAM_COLOR, meshWidth, meshHeight, RS2_FORMAT_BGR8, 30);
+    cfg.enable_stream(RS2_STREAM_DEPTH, meshWidth, meshHeight, RS2_FORMAT_Z16, 60);
+    cfg.enable_stream(RS2_STREAM_COLOR, meshWidth, meshHeight, RS2_FORMAT_BGR8, 60);
 
     rs2::pipeline_profile pipeProfile = pipe.start(cfg);
 
@@ -118,7 +118,7 @@ realsenseHelper::realsenseHelper(int meshWidth, int meshHeight) {
     sensorExtrinsics = pipeProfile.get_stream(RS2_STREAM_DEPTH).get_extrinsics_to(pipeProfile.get_stream(RS2_STREAM_COLOR));
 
     // Testing: modify translation to better match observed shadowing from depth/color corelation
-    //sensorExtrinsics.translation[0] = sensorExtrinsics.translation[0] + 0.0033;
+    sensorExtrinsics.translation[0] = sensorExtrinsics.translation[0] + 0.007;
     //sensorExtrinsics.translation[1] = sensorExtrinsics.translation[1] - 0.002;
     //sensorExtrinsics.translation[2] = sensorExtrinsics.translation[2] - 0.002;
 
