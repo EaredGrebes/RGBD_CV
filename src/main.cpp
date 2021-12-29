@@ -310,12 +310,12 @@ void runMainLoop(GLFWwindow* window)
             cv::Mat tmp1;
             cudaRGBD.edgeMaskMat.download(tmp1);
             tmp1 *= 255;
-            tmp1.convertTo(edgeMaskScaledMat, CV_8U);
+            tmp1.convertTo(edgeMaskMat, CV_8U);
 
             //cv::imshow("raw color image", realsenseHelper.colorMat);
             //cv::imshow("raw depth image", realsenseHelper.depthGreyMat);
             //cv::imshow("color in Depth image", colorInDepthMat);
-            cv::imshow("edge mask", edgeMaskScaledMat);
+            cv::imshow("edge mask", edgeMaskMat);
 
             // for some reason opecv needs this
             int key = cv::waitKey(1);
