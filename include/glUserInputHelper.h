@@ -35,6 +35,8 @@ public:
 	bool firstMouse;
 	bool leftButtonPressed;
 	bool rightButtonPressed;
+	bool startRecord;
+	bool stopRecord;
 	float yaw;   // yaw is initialized to -90.0 degrees since a yaw of 0.0 results in a direction vector pointing to the right so we initially rotate a bit to the left.
 	float pitch;
 	float lastX;

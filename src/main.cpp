@@ -52,8 +52,6 @@ struct cudaGraphicsResource *cuda_3dPointVB_resource; // handles OpenGL-CUDA exc
 struct cudaGraphicsResource *cuda_colorVB_resource;
 GLuint shaderProgram;
 
-bool runCudaRenderTest = false;
-
 // timing
 float deltaTime_sec = 0.0f; // time between current frame and last frame
 float lastFrameTime_sec = 0.0f;
@@ -79,12 +77,18 @@ cuda_processing_RGBD cudaRGBD(meshWidth,
                               realsenseHelper.sensorExtrinsics.rotation, 
                               realsenseHelper.sensorExtrinsics.translation);  
 
-// video capture
-//bool isCololor = true;
+// video capture, which uses multi-threading
+bool newDataFlag1 = false;
+bool newDataFlag2 = false;
+bool newDataFlag3 = false;
+bool startRecord = false;
+bool stopRecord = false;
+std::mutex mutex;
 //int fourcc = cv::VideoWriter::fourcc('M','J','P','G');
 //int fourcc = cv::VideoWriter::fourcc('F', 'F', 'V', '1');
 //int fourcc = cv::VideoWriter::fourcc('F','M','P','4');
 //int fourcc = cv::VideoWriter::fourcc('p', 'n', 'g', ' ');
+// last argument is if it's color or not
 cv::VideoWriter videoCaptureRGB("data/videoCaptureTest1.avi", cv::VideoWriter::fourcc('M','J','P','G'), 60, cv::Size(meshWidth, meshHeight), true);
 cv::VideoWriter videoCaptureDL("data/videoCaptureTest2.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
 cv::VideoWriter videoCaptureDU("data/videoCaptureTest3.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
@@ -96,7 +100,12 @@ cv::VideoWriter videoCaptureDU("data/videoCaptureTest3.avi", cv::VideoWriter::fo
 
 bool initGL(GLuint &shaderProg, GLFWwindow* &window);
 
-void threadWriteVideo(cv::VideoWriter &writer, bool &newDataFlag, std::mutex &mutex, cv::Mat &matIn);
+void threadWriteVideo(cv::VideoWriter &writer, 
+                      bool &newDataFlag, 
+                      bool &startRecord, 
+                      bool &stopRecord, 
+                      std::mutex &mutex, 
+                      cv::Mat &matIn);
 
 void runMainLoop(GLFWwindow* window);
 
@@ -190,23 +199,36 @@ void runMainLoop(GLFWwindow* window)
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cuda_colorVB_resource, colors_VBO, cudaGraphicsMapFlagsWriteDiscard));
 
     // multi-threading for the video capture
-    bool newDataFlag1 = false;
-    bool newDataFlag2 = false;
-    bool newDataFlag3 = false;
-    std::mutex mutex;
-    std::thread videoWriteThread1(threadWriteVideo, std::ref(videoCaptureRGB), std::ref(newDataFlag1), std::ref(mutex), std::ref(colorInDepthMat));
-    std::thread videoWriteThread2(threadWriteVideo, std::ref(videoCaptureDL), std::ref(newDataFlag2), std::ref(mutex), std::ref(depthMat8L_mm));
-    std::thread videoWriteThread3(threadWriteVideo, std::ref(videoCaptureDU), std::ref(newDataFlag3), std::ref(mutex), std::ref(depthMat8U_mm));
+    std::thread videoWriteThread1(threadWriteVideo, 
+                                  std::ref(videoCaptureRGB), 
+                                  std::ref(newDataFlag1), 
+                                  std::ref(startRecord),
+                                  std::ref(stopRecord),
+                                  std::ref(mutex), 
+                                  std::ref(colorInDepthMat));
 
-    videoWriteThread1.detach();
-    videoWriteThread2.detach();
-    videoWriteThread3.detach();
+    std::thread videoWriteThread2(threadWriteVideo, 
+                                  std::ref(videoCaptureDL), 
+                                  std::ref(newDataFlag2), 
+                                  std::ref(startRecord),
+                                  std::ref(stopRecord),                                  
+                                  std::ref(mutex), 
+                                  std::ref(depthMat8L_mm));
+
+    std::thread videoWriteThread3(threadWriteVideo, 
+                                  std::ref(videoCaptureDU), 
+                                  std::ref(newDataFlag3), 
+                                  std::ref(startRecord),
+                                  std::ref(stopRecord),                                  
+                                  std::ref(mutex), 
+                                  std::ref(depthMat8U_mm));
 
     // The main render loop
     while (!glfwWindowShouldClose(window)) {
 
         // key inputs
         usrInput.processInput(window, deltaTime_sec);
+
 
         // get simulation time
         float time_sec = static_cast< float >( glfwGetTime() );
@@ -248,21 +270,27 @@ void runMainLoop(GLFWwindow* window)
             glfwSetWindowTitle(window, str.c_str());
             
             // wait for all the threads to finish their video saving process
-            if ((newDataFlag1 == false) && (newDataFlag2 == false) && (newDataFlag3 == false)) {
+            if (usrInput.startRecord) {
+                if ((newDataFlag1 == false) && (newDataFlag2 == false) && (newDataFlag3 == false)) {
 
-                // start video frame capture threads, lock the shared memory sources
-                mutex.lock();
+                    // start video frame capture threads, lock the shared memory sources
+                    mutex.lock();
 
-                // download images from gpu to cpu
-                cudaRGBD.colorInDepthMat.download(colorInDepthMat);
-                cudaRGBD.depthMat8L_mm.download(depthMat8L_mm);
-                cudaRGBD.depthMat8U_mm.download(depthMat8U_mm);
+                    // check to see if recording should start or stop
+                    startRecord = usrInput.startRecord;
+                    stopRecord = usrInput.stopRecord;
 
-                newDataFlag1 = true;
-                newDataFlag2 = true;
-                newDataFlag3 = true;
+                    // download images from gpu to cpu
+                    cudaRGBD.colorInDepthMat.download(colorInDepthMat);
+                    cudaRGBD.depthMat8L_mm.download(depthMat8L_mm);
+                    cudaRGBD.depthMat8U_mm.download(depthMat8U_mm);
 
-                mutex.unlock();
+                    newDataFlag1 = true;
+                    newDataFlag2 = true;
+                    newDataFlag3 = true;
+
+                    mutex.unlock();
+                }
             }
         } // end of new realSense input
 
@@ -310,12 +338,12 @@ void runMainLoop(GLFWwindow* window)
             cv::Mat tmp1;
             cudaRGBD.edgeMaskMat.download(tmp1);
             tmp1 *= 255;
-            tmp1.convertTo(edgeMaskScaledMat, CV_8U);
+            tmp1.convertTo(edgeMaskMat, CV_8U);
 
             //cv::imshow("raw color image", realsenseHelper.colorMat);
             //cv::imshow("raw depth image", realsenseHelper.depthGreyMat);
             //cv::imshow("color in Depth image", colorInDepthMat);
-            cv::imshow("edge mask", edgeMaskScaledMat);
+            cv::imshow("edge mask", edgeMaskMat);
 
             // for some reason opecv needs this
             int key = cv::waitKey(1);
@@ -331,6 +359,15 @@ void runMainLoop(GLFWwindow* window)
     glDeleteBuffers(1, &points_VBO);
     glDeleteBuffers(1, &colors_VBO);
     glDeleteProgram(shaderProgram);
+
+    // stop the video recording, and finish the threads
+    mutex.lock();
+    stopRecord = true;
+    mutex.unlock();
+
+    videoWriteThread1.join();
+    videoWriteThread2.join();
+    videoWriteThread3.join();
 
     videoCaptureRGB.release();
     videoCaptureDL.release();
@@ -401,18 +438,28 @@ bool initGL(GLuint &shaderProgram, GLFWwindow* &window)
 ////////////////////////////////////////////////////////////////////////////////
 // Threaded function uses a VideoWriter object opened in the main thread
 ////////////////////////////////////////////////////////////////////////////////
-void threadWriteVideo(cv::VideoWriter &writer, bool &newDataFlag, std::mutex &mutex, cv::Mat &matIn)
+void threadWriteVideo(cv::VideoWriter &writer, 
+                      bool &newDataFlag, 
+                      bool &startRecord, 
+                      bool &stopRecord, 
+                      std::mutex &mutex, 
+                      cv::Mat &matIn)
 {
 
     while (true)
     {
-        if (true == newDataFlag){
+        if ((true == newDataFlag) && (true == startRecord)){
 
             writer.write(matIn);
 
             mutex.lock();
             newDataFlag = false; 
             mutex.unlock();
+        }
+
+        // check to see if thread should finish
+        if (true == stopRecord){
+            return;
         }
     }
 }
