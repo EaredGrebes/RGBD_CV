@@ -60,19 +60,12 @@ float lastFrameTime_sec = 0.0f;
 float frameRateFilt = 0.0f;
 float frameRateTimeConst = 0.95f;
 
-// openCV
+// openCV - data for display and saving
 cv::Mat colorInDepthMat(cv::Size(meshWidth, meshHeight), CV_8UC3);
-cv::Mat posMat_m(cv::Size(meshWidth, meshHeight), CV_32FC3);
-cv::Mat edgeMaskMat(cv::Size(meshWidth, meshHeight), CV_8U);
 cv::Mat depthMat8L_mm(cv::Size(meshWidth, meshHeight), CV_8U);
 cv::Mat depthMat8U_mm(cv::Size(meshWidth, meshHeight), CV_8U);
-//cv::Mat depthTransformed(cv::Size(meshWidth, meshHeight), CV_32S);
-//cv::Mat depthVarMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
-//cv::Mat likelihoodMat(cv::Size(meshWidth, meshHeight), CV_32F);
-//cv::Mat likelihoodMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
-//cv::Mat depthMat_grey(cv::Size(meshWidth, meshHeight), CV_8U);
-//cv::Mat depthMatVar_mm2(cv::Size(meshWidth, meshHeight), CV_32F);
-//cv::Mat convergedMat(cv::Size(meshWidth, meshHeight), CV_8U);
+cv::Mat posMat_m(cv::Size(meshWidth, meshHeight), CV_32FC3);
+cv::Mat edgeMaskMat(cv::Size(meshWidth, meshHeight), CV_8U);
 
 // custom objects
 GLFWwindow* window;
@@ -92,12 +85,10 @@ cuda_processing_RGBD cudaRGBD(meshWidth,
 //int fourcc = cv::VideoWriter::fourcc('F', 'F', 'V', '1');
 //int fourcc = cv::VideoWriter::fourcc('F','M','P','4');
 //int fourcc = cv::VideoWriter::fourcc('p', 'n', 'g', ' ');
-//cv::VideoWriter videoCapture1("videoCaptureTest1.avi", fourcc, 60, cv::Size(meshWidth, meshHeight), isCololor);
-//cv::VideoWriter videoCapture2("videoCaptureTest2.avi", fourcc, 60, cv::Size(meshWidth, meshHeight), isCololor);
-
 cv::VideoWriter videoCaptureRGB("data/videoCaptureTest1.avi", cv::VideoWriter::fourcc('M','J','P','G'), 60, cv::Size(meshWidth, meshHeight), true);
 cv::VideoWriter videoCaptureDL("data/videoCaptureTest2.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
 cv::VideoWriter videoCaptureDU("data/videoCaptureTest3.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // forward declarations
@@ -160,7 +151,7 @@ int main(int argc, char **argv)
 
 
 ////////////////////////////////////////////////////////////////////////////////
-// runRealsenseDisplay
+// runMainLoop
 ////////////////////////////////////////////////////////////////////////////////
 void runMainLoop(GLFWwindow* window)
 {
@@ -198,6 +189,7 @@ void runMainLoop(GLFWwindow* window)
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cuda_3dPointVB_resource, points_VBO, cudaGraphicsMapFlagsWriteDiscard));
     checkCudaErrors(cudaGraphicsGLRegisterBuffer(&cuda_colorVB_resource, colors_VBO, cudaGraphicsMapFlagsWriteDiscard));
 
+    // multi-threading for the video capture
     bool newDataFlag1 = false;
     bool newDataFlag2 = false;
     bool newDataFlag3 = false;
@@ -205,6 +197,10 @@ void runMainLoop(GLFWwindow* window)
     std::thread videoWriteThread1(threadWriteVideo, std::ref(videoCaptureRGB), std::ref(newDataFlag1), std::ref(mutex), std::ref(colorInDepthMat));
     std::thread videoWriteThread2(threadWriteVideo, std::ref(videoCaptureDL), std::ref(newDataFlag2), std::ref(mutex), std::ref(depthMat8L_mm));
     std::thread videoWriteThread3(threadWriteVideo, std::ref(videoCaptureDU), std::ref(newDataFlag3), std::ref(mutex), std::ref(depthMat8U_mm));
+
+    videoWriteThread1.detach();
+    videoWriteThread2.detach();
+    videoWriteThread3.detach();
 
     // The main render loop
     while (!glfwWindowShouldClose(window)) {
@@ -250,25 +246,25 @@ void runMainLoop(GLFWwindow* window)
             frameRateFilt = (frameRateTimeConst) * frameRateFilt + (1-frameRateTimeConst) * (1.0f/deltaTime_sec);
             std::string str = "3D Image, fps: " + std::to_string(frameRateFilt);
             glfwSetWindowTitle(window, str.c_str());
-
-            // start video frame capture thread
-            cudaRGBD.colorInDepthMat.download(colorInDepthMat);
-            cudaRGBD.depthMat8L_mm.download(depthMat8L_mm);
-            cudaRGBD.depthMat8U_mm.download(depthMat8U_mm);
-
-            //cv::Mat tmp1;
-            //cudaRGBD.edgeMaskMat.download(tmp1);
-            //tmp1 *= 255;
-            //tmp1.convertTo(edgeMaskMat, CV_8U);
-
-            mutex.lock();
+            
+            // wait for all the threads to finish their video saving process
             if ((newDataFlag1 == false) && (newDataFlag2 == false) && (newDataFlag3 == false)) {
+
+                // start video frame capture threads, lock the shared memory sources
+                mutex.lock();
+
+                // download images from gpu to cpu
+                cudaRGBD.colorInDepthMat.download(colorInDepthMat);
+                cudaRGBD.depthMat8L_mm.download(depthMat8L_mm);
+                cudaRGBD.depthMat8U_mm.download(depthMat8U_mm);
+
                 newDataFlag1 = true;
                 newDataFlag2 = true;
                 newDataFlag3 = true;
+
+                mutex.unlock();
             }
-            mutex.unlock();
-        }
+        } // end of new realSense input
 
         // model/view/perspective matrix
         glm::mat4 ModelMat(1.0);
@@ -311,45 +307,15 @@ void runMainLoop(GLFWwindow* window)
         if (debug) {
 
             // use openCV to display additional useful images of the data
-            //cudaRGBD.posMat_m.download(posMat_m);
-
-            //cv::Mat tmp1;
-            //cudaRGBD.edgeMaskMat.download(tmp1);
-            //tmp1 *= 255;
-            //tmp1.convertTo(edgeMaskScaledMat, CV_8U);
-
-            //cudaRGBD.colorInDepthMatTransformed.download(colorInDepthMatTransformed);
-            //cudaRGBD.depthMatEdges.download(likelihoodMat);
-            //cudaRGBD.depthMatVar_mm2.download(depthMatVar_mm2);
-
-            //double min, max;
-            //cv::minMaxLoc(depthMatVar_mm2, &min, &max);
-            //float mean = cv::mean( depthMatVar_mm2 )[0];
-            //std::cout << "mean variance (mm): " << mean << std::endl;
-
-            // cv::Mat tmp1 = depthMatVar_mm2 * 255 / 2000;
-            // tmp1.convertTo(depthVarMat_grey, CV_8U);
-
-            // cv::Mat tmp2 = likelihoodMat *255;
-            // tmp2.convertTo(likelihoodMat_grey, CV_8U);
-
-            // cv::Mat tmp3 = depthTransformed;
-            // tmp3.convertTo(depthMat_grey, CV_8U);
-
-            // cv::imshow("Color in depth transformed", colorInDepthMatTransformed);
-            // cv::imshow("edge mat", likelihoodMat_grey);
-            // cv::imshow("depth var mat", depthVarMat_grey);
-            // cv::imshow("residual mat", tmp4);
-
-            //threadWriteVideo(&videoCapture1, &newDataFlag, colorInDepthMat);
-
-            //videoCapture1.write(colorInDepthMat);
-            //videoCapture2.write(realsenseHelper.colorMat);
+            cv::Mat tmp1;
+            cudaRGBD.edgeMaskMat.download(tmp1);
+            tmp1 *= 255;
+            tmp1.convertTo(edgeMaskScaledMat, CV_8U);
 
             //cv::imshow("raw color image", realsenseHelper.colorMat);
             //cv::imshow("raw depth image", realsenseHelper.depthGreyMat);
             //cv::imshow("color in Depth image", colorInDepthMat);
-            //cv::imshow("edge mask", edgeMaskScaledMat);
+            cv::imshow("edge mask", edgeMaskScaledMat);
 
             // for some reason opecv needs this
             int key = cv::waitKey(1);
@@ -389,7 +355,7 @@ bool initGL(GLuint &shaderProgram, GLFWwindow* &window)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 6);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    window = glfwCreateWindow(meshWidth, meshHeight, "Ocean V3", NULL, NULL);
+    window = glfwCreateWindow(meshWidth, meshHeight, "3D realsense display", NULL, NULL);
 
     if (!window) {
         fprintf(stderr, "ERROR: could not open window with GLFW3\n");
@@ -437,23 +403,16 @@ bool initGL(GLuint &shaderProgram, GLFWwindow* &window)
 ////////////////////////////////////////////////////////////////////////////////
 void threadWriteVideo(cv::VideoWriter &writer, bool &newDataFlag, std::mutex &mutex, cv::Mat &matIn)
 {
-    // if (true == *newDataFlag){
-    //     writer->write(matIn);
-    //     *newDataFlag = false; 
-    // }
-    
+
     while (true)
     {
         if (true == newDataFlag){
 
+            writer.write(matIn);
+
             mutex.lock();
             newDataFlag = false; 
             mutex.unlock();
-
-            writer.write(matIn);
-            
         }
     }
-
-    return;
 }

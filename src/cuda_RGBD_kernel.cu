@@ -203,9 +203,9 @@ __global__ void GaussianBlur5x5Kernel(cv::cuda::PtrStepSz<int> matBlurredPtr, //
 
 
 //-----------------------------------------------------------------------------
-// this implements a guassian blur for integer data type images
-// why int? because cuda atomicMin cannot use floating point values,
-// and the depth image needs atomicMin for shading
+// fills in missing color data in when there is enough adjacent valid color samples
+// some color pixels are not available because of the shading effects that occur when translating
+// the color camera pixels into the depth camera reference frame
 __global__ void fillInColorKernel(  cv::cuda::PtrStepSz<int> clrBlurMatPtr_r, // outputs
                                     cv::cuda::PtrStepSz<int> clrBlurMatPtr_g,
                                     cv::cuda::PtrStepSz<int> clrBlurMatPtr_b,
@@ -248,7 +248,7 @@ __global__ void fillInColorKernel(  cv::cuda::PtrStepSz<int> clrBlurMatPtr_r, //
                 clrBlurMatPtr_g(iRow, iCol) = __float2int_rn(__int2float_rn(sumKernel_g) / __int2float_rn(sumWeight));
                 clrBlurMatPtr_b(iRow, iCol) = __float2int_rn(__int2float_rn(sumKernel_b) / __int2float_rn(sumWeight));
             } else {
-
+                // mark the pixel index where there wasn't enough data to fill in the color
                 maskMatBlurPtr(iRow, iCol) = 0;
 
                 clrBlurMatPtr_r(iRow, iCol) = 0;

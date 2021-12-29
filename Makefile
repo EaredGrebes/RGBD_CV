@@ -8,7 +8,7 @@ TARGET   := RGBD_CV
 
 CXX      := g++
 #CXXFLAGS := -Wall -Wextra -DGL_GLEXT_PROTOTYPES
-CXXFLAGS := -Wall -Wextra 
+CXXFLAGS := -Wall -Wextra
 
 INCLUDE  := -I./include \
             -I/usr/include/ \
