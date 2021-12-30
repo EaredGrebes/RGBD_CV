@@ -103,6 +103,8 @@ build/objects/src/main.o: src/main.cpp \
  /usr/local/include/opencv4/opencv2/video.hpp \
  /usr/local/include/opencv4/opencv2/video/tracking.hpp \
  /usr/local/include/opencv4/opencv2/video/background_segm.hpp \
+ /usr/local/include/opencv4/opencv2/hdf.hpp \
+ /usr/local/include/opencv4/opencv2/hdf/hdf5.hpp \
  /usr/local/cuda-11.5/samples/common/inc/GL/glew.h \
  /usr/local/cuda-11.5/include/cuda_runtime.h \
  /usr/local/cuda-11.5/include/crt/host_config.h \

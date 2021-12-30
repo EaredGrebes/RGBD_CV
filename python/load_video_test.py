@@ -3,41 +3,40 @@ import matplotlib.pyplot as plt
 import numpy as np
 import cv2
 import video_functions as vid
+import time
+import h5py
+import multiprocessing as mp
 
 print(sys.executable)
+print("Number of cpu: ", mp.cpu_count())
+
+loadCal = True
+loadVidPar = True
 
 #------------------------------------------------------------------------------
-vidName = '../data/videoCaptureTest2.avi'
-
 width = 848
 height = 480
 
-frameMat = np.array((height, width))
-frames = []
-
-cap = cv2.VideoCapture(vidName)
-frameCount = 0
-
-while(cap.isOpened()):
+calName = '../data/calibration.h5'
+vidNames = ['../data/videoCaptureTest1.avi', \
+            '../data/videoCaptureTest2.avi', \
+            '../data/videoCaptureTest3.avi'  ]
     
-    ret, frame = cap.read()
-    if ret:
-        
-        cv2.imshow('frame',frame)
-        frameMat = np.asarray( frame[:,:,0] )
-        frames.append(frameMat)
-        frameCount += 1
-    else:
-        break
-        
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-cap.release()
-#cv2.destroyAllWindows()
+if loadCal:
+    datH5 = h5py.File(calName)
+    print(datH5.keys())
+    pixelXPosMat = np.array(datH5["pixelXPosMat"][:])
+    pixelYPosMat = np.array(datH5["pixelYPosMat"][:])  
+    
+if loadVidPar:
+    start = time.time()
+    vidTensorList = vid.loadVideos(vidNames, width, height)
+    print('timer:', time.time() - start)
+    
 
 #------------------------------------------------------------------------------
-
-plt.figure()
-plt.spy(frameMat)
+# some plotting
+for ii in range(len(vidNames)):
+    plt.figure()
+    plt.spy(vidTensorList[ii][:,:,4])
 

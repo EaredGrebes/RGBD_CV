@@ -25,7 +25,7 @@ LIBDIRS  := -L/usr/lib  \
 SRC      :=                      \
 	$(wildcard src/*.cpp)        \
 
-CVLIBS	:= -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_videoio
+CVLIBS	:= -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_videoio -lopencv_hdf -lboost_filesystem -lboost_system
 MISCLIBS:= -lm -lstdc++ -lm -lglfw -lGL -lX11 -lpthread -lXrandr -lXi -lGLEW -lrealsense2
 LDFLAGS	:=	$(LIBDIRS) $(MISCLIBS) $(CVLIBS) -lcuda -lcublas -lcurand -lcudart
 
