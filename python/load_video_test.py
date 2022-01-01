@@ -6,6 +6,7 @@ import video_functions as vid
 import time
 import h5py
 import multiprocessing as mp
+import open3d as o3d
 
 
 print(sys.executable)
@@ -42,7 +43,7 @@ depth8U = 2
 
 nFrms = vidTensorList[depth8L][1]
 
-frame = 20
+frame = 10
 
 depth8LMat = vidTensorList[depth8L][0][:,:,frame]
 depth8UMat = vidTensorList[depth8U][0][:,:,frame]
@@ -71,31 +72,27 @@ xyz[:, 2] = np.reshape(Z, -1)
 #------------------------------------------------------------------------------
 # some plotting
     
-#for ii in range(len(vidNames)):
-#    plt.figure()
-#    plt.spy(vidTensorList[ii][:,:,4])
 plt.close('all')
 
 fig = plt.figure()
 ax = plt.axes(projection='3d')   
 s = 0.005     
 ax.scatter3D(X, -Y, Z, s=s, marker=".")
-fig.tight_layout()
 
 ax.view_init(90, -90)
 
-max_range = np.array([X.max()-X.min(), Y.max()-Y.min(), Z.max()-Z.min()]).max()/4
-
-mid_x = (X.max()+X.min()) * 0.5
-mid_y = (Y.max()+Y.min()) * 0.5
-mid_z = (Z.max()+Z.min()) * 0.5
-zOff = 3000
-
-rg = 3000
+rg = 5*1e3
 ax.set_xlim(-rg/2, rg/2)
 ax.set_ylim(-rg/2, rg/2)
 ax.set_zlim(0, rg)
 plt.xlabel('x')
 plt.ylabel('y')
+fig.tight_layout()
+
+
+# open3d point cloud
+pcd = o3d.geometry.PointCloud()
+pcd.points = o3d.utility.Vector3dVector(xyz)
+o3d.visualization.draw_geometries([pcd])
 
 
