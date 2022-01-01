@@ -35,8 +35,8 @@ def genVideoTensor(inArgs):
     
     # loop over each frame, adding it to a list
     print('loading video, might take a while')
-    #while(cap.isOpened()):
-    for ii in range(40):
+    while(cap.isOpened()):
+    #for ii in range(40):
         
         ret, frame = cap.read()
         if ret:
