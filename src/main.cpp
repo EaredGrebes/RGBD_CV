@@ -4,14 +4,19 @@
 #include <string.h>
 #include <math.h>
 #include <iostream>
+#include <fstream>
+#include <cstdint>
 #include <thread>
 #include <mutex>
+#include <boost/filesystem.hpp>
 
 // opencv
 #include <opencv2/opencv.hpp>
 //#include <opencv2/cudaarithm.hpp>
 #include "opencv2/core/cuda.hpp"
 #include "opencv2/videoio.hpp"
+#include <opencv2/hdf.hpp>
+#include <opencv2/hdf/hdf5.hpp>
 
 // openGL
 #include <GL/glew.h> // include GLEW and new version of GL on Windows
@@ -93,7 +98,6 @@ cv::VideoWriter videoCaptureRGB("data/videoCaptureTest1.avi", cv::VideoWriter::f
 cv::VideoWriter videoCaptureDL("data/videoCaptureTest2.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
 cv::VideoWriter videoCaptureDU("data/videoCaptureTest3.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
 
-
 ////////////////////////////////////////////////////////////////////////////////
 // forward declarations
 ////////////////////////////////////////////////////////////////////////////////
@@ -149,6 +153,18 @@ int main(int argc, char **argv)
     initGL(shaderProgram, window);
 
     findCudaDevice(argc, (const char **)argv);
+
+    // save calibration data in .h5
+    cv::String filename = "data/calibration.h5";
+    if (boost::filesystem::exists(filename)){
+        std::cout << filename << " already exists" << std::endl;
+    } else {
+        std::cout << "writing " << filename << std::endl;
+        cv::Ptr<cv::hdf::HDF5> h5CalFile = cv::hdf::open(filename);
+        h5CalFile->dswrite(realsenseHelper.pixelXPosMat, "pixelXPosMat");
+        h5CalFile->dswrite(realsenseHelper.pixelYPosMat, "pixelYPosMat");
+        h5CalFile->close();
+    }
 
     // start rendering mainloop
     runMainLoop(window);
@@ -446,8 +462,7 @@ void threadWriteVideo(cv::VideoWriter &writer,
                       cv::Mat &matIn)
 {
 
-    while (true)
-    {
+    while (true) {
         if ((true == newDataFlag) && (true == startRecord)){
 
             writer.write(matIn);
