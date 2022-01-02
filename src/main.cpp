@@ -94,9 +94,10 @@ std::mutex mutex;
 //int fourcc = cv::VideoWriter::fourcc('F','M','P','4');
 //int fourcc = cv::VideoWriter::fourcc('p', 'n', 'g', ' ');
 // last argument is if it's color or not
-cv::VideoWriter videoCaptureRGB("data/videoCaptureTest1.avi", cv::VideoWriter::fourcc('M','J','P','G'), 60, cv::Size(meshWidth, meshHeight), true);
-cv::VideoWriter videoCaptureDL("data/videoCaptureTest2.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
-cv::VideoWriter videoCaptureDU("data/videoCaptureTest3.avi", cv::VideoWriter::fourcc('F','F','V','1'), 60, cv::Size(meshWidth, meshHeight), false);
+int vidFps = 59;
+cv::VideoWriter videoCaptureRGB("data/videoCaptureTest1.avi", cv::VideoWriter::fourcc('M','J','P','G'), vidFps, cv::Size(meshWidth, meshHeight), true);
+cv::VideoWriter videoCaptureDL("data/videoCaptureTest2.avi", cv::VideoWriter::fourcc('F','F','V','1'), vidFps, cv::Size(meshWidth, meshHeight), false);
+cv::VideoWriter videoCaptureDU("data/videoCaptureTest3.avi", cv::VideoWriter::fourcc('F','F','V','1'), vidFps, cv::Size(meshWidth, meshHeight), false);
 
 ////////////////////////////////////////////////////////////////////////////////
 // forward declarations

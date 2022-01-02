@@ -7,92 +7,103 @@ import time
 import h5py
 import multiprocessing as mp
 import open3d as o3d
+import functools as ft
 
 
 print(sys.executable)
 print("Number of cpu: ", mp.cpu_count())
 
-loadCal = True
-loadVidPar = True
+plotOpen3d = True
 
 #------------------------------------------------------------------------------
+# load data
 width = 848
 height = 480
 
+# calibration data
 calName = '../data/calibration.h5'
-vidNames = ['../data/videoCaptureTest1.avi', \
-            '../data/videoCaptureTest2.avi', \
-            '../data/videoCaptureTest3.avi'  ]
-    
-if loadCal:
-    datH5 = h5py.File(calName)
-    print(datH5.keys())
-    pixelXPosMat = np.array(datH5["pixelXPosMat"][:])
-    pixelYPosMat = np.array(datH5["pixelYPosMat"][:])  
-    
-if loadVidPar:
-    start = time.time()
-    vidTensorList = vid.loadVideos(vidNames, width, height)
-    print('timer:', time.time() - start)
+
+datH5 = h5py.File(calName)
+print(datH5.keys())
+pixelXPosMat = np.array(datH5["pixelXPosMat"][:])
+pixelYPosMat = np.array(datH5["pixelYPosMat"][:])  
+
+# video streams
+vdid = {'blue': 0, 'green': 1, 'red': 2, 'depth8L': 3, 'depth8U': 4}
+
+videos = [{'filename': '../data/videoCaptureTest1.avi', 'channel': 0}, \
+          {'filename': '../data/videoCaptureTest1.avi', 'channel': 1}, \
+          {'filename': '../data/videoCaptureTest1.avi', 'channel': 2}, \
+          {'filename': '../data/videoCaptureTest2.avi', 'channel': 0}, \
+          {'filename': '../data/videoCaptureTest3.avi', 'channel': 0}]    
+
+start = time.time()
+vidTensorList = vid.loadVideos(videos, width, height)
+print('timer:', time.time() - start)
  
 #------------------------------------------------------------------------------
-    
-# video indexes
-depth8L = 1
-depth8U = 2
+# do some processing
+(h, w, nFrms) = vidTensorList[vdid['depth8L']].shape
+print('number of frames: ', nFrms)
 
-nFrms = vidTensorList[depth8L][1]
+funGetFrame = ft.partial(vid.getFrame, vidTensorList, vdid, pixelXPosMat, pixelYPosMat, width, height)
 
-frame = 10
-
-depth8LMat = vidTensorList[depth8L][0][:,:,frame]
-depth8UMat = vidTensorList[depth8U][0][:,:,frame]
-
-xMat = np.zeros((height, width))
-yMat = np.zeros((height, width))
-zMat = np.zeros((height, width))
-
-for ii in range(height):
-    for jj in range(width):
-        z = depth8LMat[ii,jj] * 255 + depth8UMat[ii,jj]
-        
-        xMat[ii,jj] = z * pixelXPosMat[ii,jj]
-        yMat[ii,jj] = z * pixelYPosMat[ii,jj]
-        zMat[ii,jj] = z
-        
-X = xMat.flatten()
-Y = yMat.flatten()
-Z = zMat.flatten()
-xyz = np.zeros((np.size(X), 3))
-xyz[:, 0] = np.reshape(X, -1)
-xyz[:, 1] = np.reshape(Y, -1)
-xyz[:, 2] = np.reshape(Z, -1) 
+# get point cloud data for the first and last frame
+pcd1, xMat, yMat, zMat, redMat, greenMat, blueMat = funGetFrame(0)
+pcd2, xMat, yMat, zMat, redMat, greenMat, blueMat = funGetFrame(nFrms - 1)
 
 
 #------------------------------------------------------------------------------
 # some plotting
-    
 plt.close('all')
 
-fig = plt.figure()
-ax = plt.axes(projection='3d')   
-s = 0.005     
-ax.scatter3D(X, -Y, Z, s=s, marker=".")
+if plotOpen3d:
+    
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(window_name='TopLeft', width=960, height=540, left=0, top=0)
+    vis.add_geometry(pcd1)
+    
+    vis2 = o3d.visualization.Visualizer()
+    vis2.create_window(window_name='TopRight', width=960, height=540, left=960, top=0)
+    vis2.add_geometry(pcd2)
+    
+    while True:
+        #vis.update_geometry()
+        if not vis.poll_events():
+            break
+        vis.update_renderer()
+    
+        #vis2.update_geometry()
+        if not vis2.poll_events():
+            break
+        vis2.update_renderer()
+    
+    vis.destroy_window()
+    vis2.destroy_window() 
+    
+   #o3d.visualization.draw_geometries([pcd1])
+   
+else:
+    
+    fig = plt.figure()
+    plt.spy(vidTensorList[red][:,:,frame])
 
-ax.view_init(90, -90)
+    fig = plt.figure()
+    ax = plt.axes(projection='3d')   
+    s = 0.005     
+    ax.scatter3D(X, -Y, Z, s=s, marker=".")
+    
+    ax.view_init(90, -90)
+    
+    rg = 5*1e3
+    ax.set_xlim(-rg/2, rg/2)
+    ax.set_ylim(-rg/2, rg/2)
+    ax.set_zlim(0, rg)
+    plt.xlabel('x')
+    plt.ylabel('y')
+    fig.tight_layout()
+    plt.show()
 
-rg = 5*1e3
-ax.set_xlim(-rg/2, rg/2)
-ax.set_ylim(-rg/2, rg/2)
-ax.set_zlim(0, rg)
-plt.xlabel('x')
-plt.ylabel('y')
-fig.tight_layout()
 
-
-# open3d point cloud
-pcd = o3d.geometry.PointCloud()
-pcd.points = o3d.utility.Vector3dVector(xyz)
-o3d.visualization.draw_geometries([pcd])
 
 
