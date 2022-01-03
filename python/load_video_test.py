@@ -59,12 +59,17 @@ plt.close('all')
 
 if plotOpen3d:
     
+    #o3d.visualization.draw_geometries([pcd1])
     vis = o3d.visualization.Visualizer()
     vis.create_window(window_name='TopLeft', width=960, height=540, left=0, top=0)
+    opt = vis.get_render_option()
+    opt.background_color = np.asarray([0, 0, 0])
     vis.add_geometry(pcd1)
     
     vis2 = o3d.visualization.Visualizer()
     vis2.create_window(window_name='TopRight', width=960, height=540, left=960, top=0)
+    opt = vis2.get_render_option()
+    opt.background_color = np.asarray([0, 0, 0])
     vis2.add_geometry(pcd2)
     
     while True:
@@ -80,8 +85,6 @@ if plotOpen3d:
     
     vis.destroy_window()
     vis2.destroy_window() 
-    
-   #o3d.visualization.draw_geometries([pcd1])
    
 else:
     

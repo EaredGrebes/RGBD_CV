@@ -40,8 +40,8 @@ def genVideoTensor(inArgs):
     
     # loop over each frame, adding it to a list
     print('loading video, might take a while')
-    #while(cap.isOpened()):
-    for ii in range(40):
+    while(cap.isOpened()):
+    #for ii in range(40):
         
         ret, frame = cap.read()
         if ret:
@@ -75,9 +75,9 @@ def genXYZ(depth8LMat, depth8UMat, pixelXPosMat, pixelYPosMat, width, height):
         for jj in range(width):
             z = depth8LMat[ii,jj] * 255 + depth8UMat[ii,jj]
             
-            xMat[ii,jj] = z * pixelXPosMat[ii,jj]
-            yMat[ii,jj] = z * pixelYPosMat[ii,jj]
-            zMat[ii,jj] = z
+            xMat[ii,jj] =  z * pixelXPosMat[ii,jj]
+            yMat[ii,jj] = -z * pixelYPosMat[ii,jj]
+            zMat[ii,jj] = -z
             
     return xMat, yMat, zMat
 
