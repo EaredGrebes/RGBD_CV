@@ -3,6 +3,51 @@ import cv2
 import video_functions as vid
 import multiprocessing as mp
 import open3d as o3d
+from os.path import exists
+import time
+import h5py
+
+
+#------------------------------------------------------------------------------
+# loads multiple videos in parallel
+def loadDataSet(videoDat, calName, numpyName):
+    
+    # load numpy file, it's faster
+    if exists(numpyName):
+        print('data.npz exists')
+        
+        filez = np.load(numpyName, allow_pickle=True)
+        
+        pixelXPosMat = filez['pixelXPosMat']
+        pixelYPosMat = filez['pixelYPosMat']
+        height, width = pixelXPosMat.shape
+        
+        vidTensorMat = filez['vidTensorList']
+        d1, d2, d3, d4 = vidTensorMat.shape
+        vidTensorList = []
+        for ii in range(d1):
+            vidTensorList.append(vidTensorMat[ii,:,:,:])
+       
+    # no numpy file, load data set from source videos ans .h5 file, then save as numpy
+    else:
+        print('data.npz does not exist')
+        
+        # load cal data
+        datH5 = h5py.File(calName)
+        print(datH5.keys())
+        pixelXPosMat = np.array(datH5["pixelXPosMat"][:])
+        pixelYPosMat = np.array(datH5["pixelYPosMat"][:]) 
+        height, width = pixelXPosMat.shape
+        
+        # load videos
+        vidTensorList = vid.loadVideos(videoDat, width, height)
+        
+        # save data as numpy file for quicker loading
+        np.savez(numpyName, pixelXPosMat = pixelXPosMat, 
+                            pixelYPosMat = pixelYPosMat,
+                            vidTensorList = vidTensorList) 
+        
+    return vidTensorList, pixelXPosMat, pixelYPosMat, width, height
 
 
 #------------------------------------------------------------------------------
@@ -104,7 +149,7 @@ def genPointCloud(xMat, yMat, zMat, redMat, greenMat, blueMat):
     pcd.points = o3d.utility.Vector3dVector(xyz)
     pcd.colors = o3d.utility.Vector3dVector(rgb)
     
-    return pcd
+    return pcd, xyz, rgb
     
 #------------------------------------------------------------------------------
 def getFrame(vidTensorList, vdid, pixelXPosMat, pixelYPosMat, width, height, frame):
@@ -123,6 +168,9 @@ def getFrame(vidTensorList, vdid, pixelXPosMat, pixelYPosMat, width, height, fra
                                   width, \
                                   height)
         
-    pcd = vid.genPointCloud(xMat, yMat, zMat, redMat, greenMat, blueMat)  
+    pcd, xyz, rgb = vid.genPointCloud(xMat, yMat, zMat, redMat, greenMat, blueMat)  
     
-    return pcd, xMat, yMat, zMat, redMat, greenMat, blueMat
+    return pcd, xMat, yMat, zMat, redMat, greenMat, blueMat, xyz, rgb
+
+
+

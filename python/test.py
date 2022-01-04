@@ -6,7 +6,7 @@ width = 848
 height = 480
 
 inArgs = (vidName, channel, width,  height)
-frameTensor = vid.genVideoTensor(inArgs)
+#frameTensor = vid.genVideoTensor(inArgs)
 
 idx1 = 100
 idx2 = 160
