@@ -4,7 +4,7 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 
 #------------------------------------------------------------------------------
-def plot2_Open3d(pcd1, pcd2):
+def plotDual_Open3d(pcd1, pcd2):
     
     #o3d.visualization.draw_geometries([pcd1])
     vis = o3d.visualization.Visualizer()
@@ -59,3 +59,40 @@ def plotMask(mat, name):
     fig = plt.figure(name)
     plt.title(name)
     plt.spy(mat)
+    
+#------------------------------------------------------------------------------
+def plotRgbMats(redMat, greenMat, blueMat, name):
+    
+    plt.figure(name)
+    plt.title(name)
+    plt.imshow(np.concatenate((redMat[:,:,np.newaxis], greenMat[:,:,np.newaxis], blueMat[:,:,np.newaxis]), axis=2))
+    plt.show()
+    
+#------------------------------------------------------------------------------
+def plotRgbHistogram(rgb, rgbPdf):   
+    
+    redHist = np.sum(rgbPdf, axis = (1,2))
+    greenHist = np.sum(rgbPdf, axis = (0,2))
+    blueHist = np.sum(rgbPdf, axis = (0,1))
+    
+    xVec = np.linspace(2, 255, len(redHist))
+    
+    fig, axs = plt.subplots(3, 1)
+    
+    axs[0].hist(rgb[:,0], density=True, bins=128, color = (1, 0, 0))
+    axs[0].step(xVec, redHist/2)
+    axs[0].set_title('red histogram')
+
+    axs[1].hist(rgb[:,1], density=True, bins=128, color = (0, 1, 0))
+    axs[1].step(xVec, greenHist/2)
+    axs[1].set_title('green histogram')
+
+    axs[2].hist(rgb[:,2], density=True, bins=128, color = (0, 0, 1))
+    axs[2].step(xVec, blueHist/2)
+    axs[2].set_title('blue histogram')
+
+    fig.patch.set_facecolor((0.7, 0.7, 0.7))
+    for ax in axs:
+        ax.sharex(axs[0])
+        ax.set_facecolor((0, 0, 0))
+

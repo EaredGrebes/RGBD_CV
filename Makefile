@@ -15,12 +15,12 @@ INCLUDE  := -I./include \
 			-I/usr/local/include \
 			-I/usr/local/include/opencv4 \
 			-I../../common/inc \
-			-I/usr/local/cuda-11.5/samples/common/inc \
-			-I/usr/local/cuda-11.5/include
+			-I/usr/local/cuda-11.4/samples/common/inc \
+			-I/usr/local/cuda-11.4/include
 
 LIBDIRS  := -L/usr/lib  \
 			-L/usr/local/lib \
-			-L/usr/local/cuda-11.5/lib64			
+			-L/usr/local/cuda-11.4/lib64			
 
 SRC      :=                      \
 	$(wildcard src/*.cpp)        \
@@ -36,7 +36,7 @@ DEPENDENCIES := $(OBJECTS:.o=.d)
 
 ############################################################
 # some CUDA stuff
-CUDA_PATH ?= /usr/local/cuda-11.5
+CUDA_PATH ?= /usr/local/cuda-11.4
 TARGET_SIZE := 64
 
 NVCC	:= $(CUDA_PATH)/bin/nvcc -ccbin $(CXX)

@@ -22,6 +22,7 @@ def loadDataSet(videoDat, calName, numpyName):
         pixelYPosMat = filez['pixelYPosMat']
         height, width = pixelXPosMat.shape
         
+        # create a list of the video tensors
         vidTensorMat = filez['vidTensorList']
         d1, d2, d3, d4 = vidTensorMat.shape
         vidTensorList = []
@@ -49,7 +50,6 @@ def loadDataSet(videoDat, calName, numpyName):
         
     return vidTensorList, pixelXPosMat, pixelYPosMat, width, height
 
-
 #------------------------------------------------------------------------------
 # loads multiple videos in parallel
 def loadVideos(videos, width, height):
@@ -65,7 +65,6 @@ def loadVideos(videos, width, height):
     
     return vidTensorList
     
-
 #------------------------------------------------------------------------------
 # generates a tensor from a video
 def genVideoTensor(inArgs):
@@ -108,10 +107,10 @@ def genVideoTensor(inArgs):
      
     return frameTensor
 
-
 #------------------------------------------------------------------------------
-def genXYZ(depth8LMat, depth8UMat, pixelXPosMat, pixelYPosMat, width, height):
+def genXYZMats(depth8LMat, depth8UMat, pixelXPosMat, pixelYPosMat):
     
+    height, width = pixelXPosMat.shape
     xMat = np.zeros((height, width))
     yMat = np.zeros((height, width))
     zMat = np.zeros((height, width))
@@ -128,18 +127,32 @@ def genXYZ(depth8LMat, depth8UMat, pixelXPosMat, pixelYPosMat, width, height):
 
 
 #------------------------------------------------------------------------------
-def genPointCloud(xMat, yMat, zMat, redMat, greenMat, blueMat):
+def flattenCombine(Mat1, Mat2, Mat3): 
     
-    def flattenCombine(Mat1, Mat2, Mat3): 
-        X = Mat1.flatten()
-        Y = Mat2.flatten()
-        Z = Mat3.flatten()
-        xyz = np.zeros((np.size(X), 3))
-        xyz[:, 0] = np.reshape(X, -1)
-        xyz[:, 1] = np.reshape(Y, -1)
-        xyz[:, 2] = np.reshape(Z, -1) 
-        
-        return xyz
+    X = Mat1.flatten()
+    Y = Mat2.flatten()
+    Z = Mat3.flatten()
+    xyz = np.zeros((np.size(X), 3))
+    xyz[:, 0] = np.reshape(X, -1)
+    xyz[:, 1] = np.reshape(Y, -1)
+    xyz[:, 2] = np.reshape(Z, -1) 
+    
+    return xyz
+
+#------------------------------------------------------------------------------
+def getFrameMats(vidTensorList, vdid, frame):
+    
+    redMat   = vidTensorList[vdid['red']][:,:,frame]
+    greenMat = vidTensorList[vdid['green']][:,:,frame]
+    blueMat  = vidTensorList[vdid['blue']][:,:,frame]
+    depth8LMat = vidTensorList[vdid['depth8L']][:,:,frame]
+    depth8UMat = vidTensorList[vdid['depth8U']][:,:,frame]
+    
+    return redMat, greenMat, blueMat, depth8LMat, depth8UMat
+
+    
+#------------------------------------------------------------------------------
+def genPointCloud(xMat, yMat, zMat, redMat, greenMat, blueMat):
     
     xyz = flattenCombine(xMat, yMat, zMat)
     rgb = flattenCombine(redMat, greenMat, blueMat)
@@ -150,27 +163,21 @@ def genPointCloud(xMat, yMat, zMat, redMat, greenMat, blueMat):
     pcd.colors = o3d.utility.Vector3dVector(rgb)
     
     return pcd, xyz, rgb
-    
+
+
 #------------------------------------------------------------------------------
-def getFrame(vidTensorList, vdid, pixelXPosMat, pixelYPosMat, width, height, frame):
+def generateFrameData(vidTensorList, vdid, pixelXPosMat, pixelYPosMat, frame):
     print('getting frame: ', frame)
     
-    redMat   = vidTensorList[vdid['red']][:,:,frame]
-    greenMat = vidTensorList[vdid['green']][:,:,frame]
-    blueMat  = vidTensorList[vdid['blue']][:,:,frame]
-    depth8LMat = vidTensorList[vdid['depth8L']][:,:,frame]
-    depth8UMat = vidTensorList[vdid['depth8U']][:,:,frame]
-
-    xMat, yMat, zMat = vid.genXYZ(depth8LMat, \
-                                  depth8UMat, \
-                                  pixelXPosMat, \
-                                  pixelYPosMat, \
-                                  width, \
-                                  height)
+    redMat, greenMat, blueMat, depth8LMat, depth8UMat = getFrameMats(vidTensorList, vdid, frame)
+    
+    xMat, yMat, zMat = genXYZMats(depth8LMat, depth8UMat, pixelXPosMat, pixelYPosMat)
         
-    pcd, xyz, rgb = vid.genPointCloud(xMat, yMat, zMat, redMat, greenMat, blueMat)  
+    pcd, xyz, rgb = genPointCloud(xMat, yMat, zMat, redMat, greenMat, blueMat)  
     
     return pcd, xMat, yMat, zMat, redMat, greenMat, blueMat, xyz, rgb
+
+
 
 
 

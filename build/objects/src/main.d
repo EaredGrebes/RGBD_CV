@@ -105,31 +105,31 @@ build/objects/src/main.o: src/main.cpp \
  /usr/local/include/opencv4/opencv2/video/background_segm.hpp \
  /usr/local/include/opencv4/opencv2/hdf.hpp \
  /usr/local/include/opencv4/opencv2/hdf/hdf5.hpp \
- /usr/local/cuda-11.5/samples/common/inc/GL/glew.h \
- /usr/local/cuda-11.5/include/cuda_runtime.h \
- /usr/local/cuda-11.5/include/crt/host_config.h \
- /usr/local/cuda-11.5/include/builtin_types.h \
- /usr/local/cuda-11.5/include/device_types.h \
- /usr/local/cuda-11.5/include/crt/host_defines.h \
- /usr/local/cuda-11.5/include/driver_types.h \
- /usr/local/cuda-11.5/include/vector_types.h \
- /usr/local/cuda-11.5/include/surface_types.h \
- /usr/local/cuda-11.5/include/texture_types.h \
- /usr/local/cuda-11.5/include/library_types.h \
- /usr/local/cuda-11.5/include/channel_descriptor.h \
- /usr/local/cuda-11.5/include/cuda_runtime_api.h \
- /usr/local/cuda-11.5/include/cuda_device_runtime_api.h \
- /usr/local/cuda-11.5/include/driver_functions.h \
- /usr/local/cuda-11.5/include/vector_functions.h \
- /usr/local/cuda-11.5/include/vector_functions.hpp \
- /usr/local/cuda-11.5/include/cuda_gl_interop.h \
- /usr/local/cuda-11.5/include/cufft.h \
- /usr/local/cuda-11.5/include/cuComplex.h \
- /usr/local/cuda-11.5/samples/common/inc/helper_cuda.h \
- /usr/local/cuda-11.5/samples/common/inc/helper_string.h \
- /usr/local/cuda-11.5/samples/common/inc/helper_functions.h \
- /usr/local/cuda-11.5/samples/common/inc/exception.h \
- /usr/local/cuda-11.5/samples/common/inc/helper_image.h \
- /usr/local/cuda-11.5/samples/common/inc/helper_timer.h \
+ /usr/local/cuda-11.4/samples/common/inc/GL/glew.h \
+ /usr/local/cuda-11.4/include/cuda_runtime.h \
+ /usr/local/cuda-11.4/include/crt/host_config.h \
+ /usr/local/cuda-11.4/include/builtin_types.h \
+ /usr/local/cuda-11.4/include/device_types.h \
+ /usr/local/cuda-11.4/include/crt/host_defines.h \
+ /usr/local/cuda-11.4/include/driver_types.h \
+ /usr/local/cuda-11.4/include/vector_types.h \
+ /usr/local/cuda-11.4/include/surface_types.h \
+ /usr/local/cuda-11.4/include/texture_types.h \
+ /usr/local/cuda-11.4/include/library_types.h \
+ /usr/local/cuda-11.4/include/channel_descriptor.h \
+ /usr/local/cuda-11.4/include/cuda_runtime_api.h \
+ /usr/local/cuda-11.4/include/cuda_device_runtime_api.h \
+ /usr/local/cuda-11.4/include/driver_functions.h \
+ /usr/local/cuda-11.4/include/vector_functions.h \
+ /usr/local/cuda-11.4/include/vector_functions.hpp \
+ /usr/local/cuda-11.4/include/cuda_gl_interop.h \
+ /usr/local/cuda-11.4/include/cufft.h \
+ /usr/local/cuda-11.4/include/cuComplex.h \
+ /usr/local/cuda-11.4/samples/common/inc/helper_cuda.h \
+ /usr/local/cuda-11.4/samples/common/inc/helper_string.h \
+ /usr/local/cuda-11.4/samples/common/inc/helper_functions.h \
+ /usr/local/cuda-11.4/samples/common/inc/exception.h \
+ /usr/local/cuda-11.4/samples/common/inc/helper_image.h \
+ /usr/local/cuda-11.4/samples/common/inc/helper_timer.h \
  include/shaderProgramGenerator.h include/realsenseHelper.h \
  include/glUserInputHelper.h include/cuda_processing_RGBD.h
