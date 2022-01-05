@@ -66,7 +66,8 @@ def plotRgbMats(redMat, greenMat, blueMat, name):
     plt.figure(name)
     plt.title(name)
     plt.imshow(np.concatenate((redMat[:,:,np.newaxis], greenMat[:,:,np.newaxis], blueMat[:,:,np.newaxis]), axis=2))
-    plt.show()
+    plt.show()  
+    
     
 #------------------------------------------------------------------------------
 def plotRgbHistogram(rgb, rgbPdf):   

@@ -14,6 +14,7 @@ INCLUDE  := -I./include \
             -I/usr/include/ \
 			-I/usr/local/include \
 			-I/usr/local/include/opencv4 \
+			-I/usr/local/include/eigen3 \
 			-I../../common/inc \
 			-I/usr/local/cuda-11.4/samples/common/inc \
 			-I/usr/local/cuda-11.4/include

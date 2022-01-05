@@ -1,5 +1,4 @@
-plotOpen3d = True
-loadData = True
+plotOpen3d = False
 
 # packages
 import sys
@@ -82,10 +81,22 @@ rgb = rgb[maskBflat, :]
 
 # compute joint pdf of RGB data
 rgbPdf = myCv.estimateRgbPdf(redBlur, greenBlur, blueBlur, maskMatB)
-   
-redHist = np.sum(rgbPdf, axis = (1,2))
-greenHist = np.sum(rgbPdf, axis = (0,2))
-blueHist = np.sum(rgbPdf, axis = (0,1))
+
+H = myCv.computeEntropy(rgbPdf, redBlur, greenBlur, blueBlur, maskMatB)
+H = myCv.blurMat(H, maskMatB)
+
+# mask2 = (H < 0.002) or (H > 0.01)
+
+# rH = np.copy(redBlur)
+# gH = np.copy(greenBlur)
+# bH = np.copy(blueBlur)
+
+# rH[mask2] = 0
+# gH[mask2] = 0
+# bH[mask2] = 0
+
+Hflat = H.flatten()
+Hflat = Hflat[maskBflat]
 
 
 #------------------------------------------------------------------------------
@@ -99,7 +110,10 @@ vdp.plotMask(maskMat, 'maskMat')
 vdp.plotRgbMats(redMat, greenMat, blueMat, 'RGB frame 1')
 vdp.plotRgbMats(redBlur, greenBlur, blueBlur, 'RGB frame 1 blur')
 
-    
+plt.figure('H hist')
+plt.title('H hist')
+plt.hist(Hflat, density=True, bins = 1000)
+        
 if plotOpen3d:
     
     funGetFrame = ft.partial(vid.generateFrameData, vidTensorList, vdid, pixelXPosMat, pixelYPosMat)

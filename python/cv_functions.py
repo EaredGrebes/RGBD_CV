@@ -70,8 +70,6 @@ class myCv:
     #--------------------------------------------------------------------------
     def estimateRgbPdf(self, redMat, greenMat, blueMat, maskMat):   
         
-        nPoints = self.width * self.height
-        
         pdf = np.zeros((self.nBins, self.nBins, self.nBins))
         sm = 0
         
@@ -86,5 +84,34 @@ class myCv:
                     
                     pdf[idr,idg,idb] += 1
                     sm += 1
+                    
+        pdfNormed = pdf / sm
     
-        return pdf / sm
+        return pdfNormed
+    
+    #--------------------------------------------------------------------------
+    def computeImageEntropy(self, rgbPdf, redMat, greenMat, blueMat, maskMat): 
+        
+        H = np.zeros((self.height, self.width))
+        
+        for ii in range(2, self.height-2):
+            for jj in range(2, self.width-2):
+                
+                if (maskMat[ii,jj] == 1):
+                    
+                    rSub = redMat[iRow-2:iRow+3, iCol-2:iCol+3]
+                    gSub = greenMat[iRow-2:iRow+3, iCol-2:iCol+3]
+                    bSub = blueMat[iRow-2:iRow+3, iCol-2:iCol+3]
+                    maskSub = maskMat[iRow-2:iRow+3, iCol-2:iCol+3]
+                    
+                    rgbPdf = self.estimateRgbPdf(rSub, gSub, bSub, maskSub)
+                    
+                    idr = np.floor(redMat[ii,jj] / 2).astype(int)
+                    idg = np.floor(greenMat[ii,jj] / 2).astype(int)
+                    idb = np.floor(blueMat[ii,jj] / 2).astype(int)
+                    
+                    p = rgbPdf[idr, idg, idb]
+                    
+                    H[ii,jj] = p * np.log2(1/p)
+    
+        return H    
