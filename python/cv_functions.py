@@ -90,28 +90,43 @@ class myCv:
         return pdfNormed
     
     #--------------------------------------------------------------------------
-    def computeImageEntropy(self, rgbPdf, redMat, greenMat, blueMat, maskMat): 
+    def computeImageEntropy(self,  redMat, greenMat, blueMat, maskMat): 
         
-        H = np.zeros((self.height, self.width))
-        
-        for ii in range(2, self.height-2):
-            for jj in range(2, self.width-2):
+        lim = -60
+        H = np.ones((self.height, self.width)) * lim
+        win = 3
+        for ii in range(self.height):
+            for jj in range(self.width):
                 
                 if (maskMat[ii,jj] == 1):
                     
-                    rSub = redMat[iRow-2:iRow+3, iCol-2:iCol+3]
-                    gSub = greenMat[iRow-2:iRow+3, iCol-2:iCol+3]
-                    bSub = blueMat[iRow-2:iRow+3, iCol-2:iCol+3]
-                    maskSub = maskMat[iRow-2:iRow+3, iCol-2:iCol+3]
+                    ac = np.max((0, ii - win))
+                    bc = np.min((self.height - 1, ii + win + 1)) 
                     
-                    rgbPdf = self.estimateRgbPdf(rSub, gSub, bSub, maskSub)
+                    ar = np.max((0, jj - win))
+                    br = np.min((self.width - 1, jj + win + 1)) 
                     
-                    idr = np.floor(redMat[ii,jj] / 2).astype(int)
-                    idg = np.floor(greenMat[ii,jj] / 2).astype(int)
-                    idb = np.floor(blueMat[ii,jj] / 2).astype(int)
+                    rM =   redMat[ac:bc, ar:br]
+                    gM = greenMat[ac:bc, ar:br]
+                    bM =  blueMat[ac:bc, ar:br]
+                    mM =  maskMat[ac:bc, ar:br]
                     
-                    p = rgbPdf[idr, idg, idb]
+                    (h, w) = rM.shape
                     
-                    H[ii,jj] = p * np.log2(1/p)
+                    X = np.zeros((3, h*w))
+                    X[0,:] = rM.flatten()
+                    X[1,:] = gM.flatten()
+                    X[2,:] = bM.flatten()
+                    
+                    mask = np.abs(np.sum(X, axis = 0)) > 0
+                    N = mask.sum()
+                
+                    X = X[:, mask]
+                    X = X - X.mean(axis=1, keepdims=True)
+                    
+                    A = np.matmul(X, X.T) / (N-1)
+                    h = np.linalg.det(A)
+
+                    H[ii,jj] = np.log(h) if h > 0 else lim
     
-        return H    
+        return H

@@ -1,4 +1,5 @@
-plotOpen3d = False
+plotOpen3d = True
+plotRgbHist = False
 
 # packages
 import sys
@@ -79,40 +80,43 @@ rgb = vid.flattenCombine(redBlur, greenBlur, blueBlur)
 maskBflat = maskMatB.flatten()
 rgb = rgb[maskBflat, :]
 
-# compute joint pdf of RGB data
-rgbPdf = myCv.estimateRgbPdf(redBlur, greenBlur, blueBlur, maskMatB)
+H0 = myCv.computeImageEntropy(redBlur, greenBlur, blueBlur, maskMatB)
 
-H = myCv.computeEntropy(rgbPdf, redBlur, greenBlur, blueBlur, maskMatB)
-H = myCv.blurMat(H, maskMatB)
+Hflat = H0.flatten()
+H = H0 - Hflat.mean()
+H = H / np.var(Hflat[maskBflat])
+uc = 10
+lc = -1
+H[H > uc] = uc
+H[H < lc] = lc
 
-# mask2 = (H < 0.002) or (H > 0.01)
-
-# rH = np.copy(redBlur)
-# gH = np.copy(greenBlur)
-# bH = np.copy(blueBlur)
-
-# rH[mask2] = 0
-# gH[mask2] = 0
-# bH[mask2] = 0
-
-Hflat = H.flatten()
-Hflat = Hflat[maskBflat]
+H = H - H.min()
+H = H / H.max()
 
 
 #------------------------------------------------------------------------------
 # some plotting
 plt.close('all')
 
-vdp.plotRgbHistogram(rgb, rgbPdf)
+plt.figure('H')
+plt.title('H')
+plt.imshow(H)
+
+plt.figure('H hist')
+plt.title('H hist')
+plt.hist(H.flatten(), density=True, bins = 1000)
 
 vdp.plotMask(maskMat, 'maskMat')
 
 vdp.plotRgbMats(redMat, greenMat, blueMat, 'RGB frame 1')
 vdp.plotRgbMats(redBlur, greenBlur, blueBlur, 'RGB frame 1 blur')
 
-plt.figure('H hist')
-plt.title('H hist')
-plt.hist(Hflat, density=True, bins = 1000)
+
+
+if plotRgbHist:
+    # compute joint pdf of RGB data
+    rgbPdf = myCv.estimateRgbPdf(redBlur, greenBlur, blueBlur, maskMatB)
+    vdp.plotRgbHistogram(rgb, rgbPdf)
         
 if plotOpen3d:
     
