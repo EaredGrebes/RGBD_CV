@@ -7,10 +7,9 @@ from os.path import exists
 import time
 import h5py
 
-
 #------------------------------------------------------------------------------
 # loads multiple videos in parallel
-def loadDataSet(videoDat, calName, numpyName):
+def loadDataSet(videoDat, vdid, calName, numpyName):
     
     # load numpy file, it's faster
     if exists(numpyName):
@@ -20,14 +19,13 @@ def loadDataSet(videoDat, calName, numpyName):
         
         pixelXPosMat = filez['pixelXPosMat']
         pixelYPosMat = filez['pixelYPosMat']
-        height, width = pixelXPosMat.shape
-        
-        # create a list of the video tensors
-        vidTensorMat = filez['vidTensorList']
-        d1, d2, d3, d4 = vidTensorMat.shape
-        vidTensorList = []
-        for ii in range(d1):
-            vidTensorList.append(vidTensorMat[ii,:,:,:])
+        redTens = filez['redTens']
+        greenTens = filez['greenTens']
+        blueTens = filez['blueTens']
+        xTens = filez['xTens']
+        yTens = filez['yTens']
+        zTens = filez['zTens']
+        maskTens = filez['maskTens']
        
     # no numpy file, load data set from source videos ans .h5 file, then save as numpy
     else:
@@ -40,15 +38,52 @@ def loadDataSet(videoDat, calName, numpyName):
         pixelYPosMat = np.array(datH5["pixelYPosMat"][:]) 
         height, width = pixelXPosMat.shape
         
-        # load videos
+        # load video list
         vidTensorList = vid.loadVideos(videoDat, width, height)
+        
+        # seperate out the different channels / videos
+        redTens   = vidTensorList[vdid['red']]
+        greenTens = vidTensorList[vdid['green']]
+        blueTens  = vidTensorList[vdid['blue']]
+        depth8LTens = vidTensorList[vdid['depth8L']]
+        depth8UTens = vidTensorList[vdid['depth8U']]
+        
+        # construct the x,y,z position tensors from the depth 8L and 8U, and pixel calibration data
+        height, width, nFrames = depth8UTens.shape
+        xTens = np.zeros((height, width, nFrames),  dtype = np.single)
+        yTens = np.zeros((height, width, nFrames),  dtype = np.single)
+        zTens = np.zeros((height, width, nFrames),  dtype = np.single)
+        maskTens = np.zeros((height, width, nFrames),  dtype = bool)
+        
+        zLim_mm = -200
+        for frame in range(nFrames):
+            
+            # x,y,z tensors
+            zMat = -(depth8LTens[:,:,frame].astype(np.single) * 255 + depth8UTens[:,:,frame].astype(np.single))
+            zTens[:,:,frame] =  zMat
+            xTens[:,:,frame] = -zMat * pixelXPosMat
+            yTens[:,:,frame] =  zMat * pixelYPosMat
+            
+            # mask tensor
+            maskMat = np.full((height, width), True, dtype=bool)
+            tmp = (redTens[:,:,frame] + greenTens[:,:,frame] + blueTens[:,:,frame]) == 0
+            tmp2 = zMat > zLim_mm 
+            tmp3 = np.logical_or(tmp, tmp2)
+            maskMat[tmp2] = False
+            maskTens[:,:,frame] = maskMat
         
         # save data as numpy file for quicker loading
         np.savez(numpyName, pixelXPosMat = pixelXPosMat, 
                             pixelYPosMat = pixelYPosMat,
-                            vidTensorList = vidTensorList) 
+                            redTens = redTens,
+                            greenTens = greenTens,
+                            blueTens = blueTens,
+                            xTens = xTens,
+                            yTens = yTens,
+                            zTens = zTens, 
+                            maskTens = maskTens) 
         
-    return vidTensorList, pixelXPosMat, pixelYPosMat, width, height
+    return redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens
 
 #------------------------------------------------------------------------------
 # loads multiple videos in parallel
@@ -107,31 +142,13 @@ def genVideoTensor(inArgs):
      
     return frameTensor
 
-#------------------------------------------------------------------------------
-def genXYZMats(depth8LMat, depth8UMat, pixelXPosMat, pixelYPosMat):
-    
-    height, width = pixelXPosMat.shape
-    xMat = np.zeros((height, width))
-    yMat = np.zeros((height, width))
-    zMat = np.zeros((height, width))
-
-    for ii in range(height):
-        for jj in range(width):
-            z = depth8LMat[ii,jj] * 255 + depth8UMat[ii,jj]
-            
-            xMat[ii,jj] =  z * pixelXPosMat[ii,jj]
-            yMat[ii,jj] = -z * pixelYPosMat[ii,jj]
-            zMat[ii,jj] = -z
-            
-    return xMat, yMat, zMat
-
 
 #------------------------------------------------------------------------------
-def flattenCombine(Mat1, Mat2, Mat3): 
+def flattenCombine(Mat3): 
     
-    X = Mat1.flatten()
-    Y = Mat2.flatten()
-    Z = Mat3.flatten()
+    X = Mat3[:,:,0].flatten()
+    Y = Mat3[:,:,1].flatten()
+    Z = Mat3[:,:,2].flatten()
     xyz = np.zeros((np.size(X), 3))
     xyz[:, 0] = np.reshape(X, -1)
     xyz[:, 1] = np.reshape(Y, -1)
@@ -140,22 +157,20 @@ def flattenCombine(Mat1, Mat2, Mat3):
     return xyz
 
 #------------------------------------------------------------------------------
-def getFrameMats(vidTensorList, vdid, frame):
+def getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame):
     
-    redMat   = vidTensorList[vdid['red']][:,:,frame]
-    greenMat = vidTensorList[vdid['green']][:,:,frame]
-    blueMat  = vidTensorList[vdid['blue']][:,:,frame]
-    depth8LMat = vidTensorList[vdid['depth8L']][:,:,frame]
-    depth8UMat = vidTensorList[vdid['depth8U']][:,:,frame]
+    rgbMat = np.stack((redTens[:,:,frame], greenTens[:,:,frame], blueTens[:,:,frame]), axis=2)
+    xyzMat = np.stack((xTens[:,:,frame], yTens[:,:,frame], zTens[:,:,frame]), axis=2)
     
-    return redMat, greenMat, blueMat, depth8LMat, depth8UMat
+    maskMat = maskTens[:,:,frame]
+    return rgbMat, xyzMat, maskMat
 
     
 #------------------------------------------------------------------------------
-def genPointCloud(xMat, yMat, zMat, redMat, greenMat, blueMat):
+def genPointCloud(xyzMat, rgbMat):
     
-    xyz = flattenCombine(xMat, yMat, zMat)
-    rgb = flattenCombine(redMat, greenMat, blueMat)
+    xyz = flattenCombine(xyzMat)
+    rgb = flattenCombine(rgbMat)
     rgb = rgb / 255
     
     pcd = o3d.geometry.PointCloud()

@@ -3,6 +3,7 @@ import cv2
 import open3d as o3d
 import matplotlib.pyplot as plt
 
+
 #------------------------------------------------------------------------------
 def plotDual_Open3d(pcd1, pcd2):
     

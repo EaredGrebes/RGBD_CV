@@ -1,5 +1,5 @@
-plotOpen3d = True
-plotRgbHist = False
+plotOpen3d = False
+plotRgbHist = True
 
 # packages
 import sys
@@ -10,13 +10,12 @@ import time
 import multiprocessing as mp
 import open3d as o3d
 import functools as ft
-import cv_functions
+import cv_functions as cvFun
 
 # custom functions
 import video_functions as vid
 import plot_functions as vdp
 
-print(sys.executable)
 print("Number of cpu: ", mp.cpu_count())
     
 #------------------------------------------------------------------------------
@@ -39,96 +38,119 @@ videoDat = [{'filename': folder + 'videoCaptureTest1.avi', 'channel': 0}, \
 #------------------------------------------------------------------------------
 # load data
 start = time.time()
-vidTensorList, pixelXPosMat, pixelYPosMat, width, height = vid.loadDataSet(videoDat, calName, numpyName)
+redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens = vid.loadDataSet(videoDat, vdid, calName, numpyName)
 print('timer:', time.time() - start)
-         
+   
 #------------------------------------------------------------------------------
 # do some processing
-(height, width, nFrms) = vidTensorList[vdid['depth8L']].shape
+(height, width, nFrms) = redTens.shape
 print('number of frames: ', nFrms)
 
 # create object for handling CV functions
-myCv = cv_functions.myCv(height, width) 
+myCv = cvFun.myCv(height, width) 
 
 # get frame mats
-frame = 0
-redMat, greenMat, blueMat, depth8LMat, depth8UMat = vid.getFrameMats(vidTensorList, vdid, frame)
-xMat, yMat, zMat = vid.genXYZMats(depth8LMat, depth8UMat, pixelXPosMat, pixelYPosMat)  
-   
-# masking 
-depthMaskMat = myCv.computeMaskMat(zMat)
-redMaskMat = myCv.computeMaskMat(redMat)
-greenMaskMat = myCv.computeMaskMat(greenMat)
-blueMaskMat = myCv.computeMaskMat(blueMat)
-
-colorMaskMat = redMaskMat + greenMaskMat + blueMaskMat
-maskMat = depthMaskMat * colorMaskMat
-maskMat[maskMat > 1] = 1
-
-maskMatB = np.array(maskMat, dtype=bool)
+frame = 25
+rgbMat, xyzMat, maskMat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame)
 
 # blur RGB
-redMat[maskMatB==False] = 0
-greenMat[maskMatB==False] = 0
-blueMat[maskMatB==False] = 0
-    
-redBlur   = myCv.blurMat(redMat,   maskMat).astype(dtype = np.ubyte)
-greenBlur = myCv.blurMat(greenMat, maskMat).astype(dtype = np.ubyte)
-blueBlur  = myCv.blurMat(blueMat,  maskMat).astype(dtype = np.ubyte)
-    
-rgb = vid.flattenCombine(redBlur, greenBlur, blueBlur)
-maskBflat = maskMatB.flatten()
-rgb = rgb[maskBflat, :]
+print('blurring')
+rgbBlurMat = np.zeros((height, width, 3), dtype = np.ubyte)
+for clr in range(3):
+    rgbBlurMat[:,:,clr] = myCv.blurMat(rgbMat[:,:,clr], maskMat).astype(dtype = np.ubyte)
 
-H0 = myCv.computeImageEntropy(redBlur, greenBlur, blueBlur, maskMatB)
+# compute rgb entropy
+Hmat, Hmask = myCv.computeImageEntropy(rgbBlurMat[:,:,0], rgbBlurMat[:,:,1], rgbBlurMat[:,:,2], maskMat)
+HnormMat = cvFun.normalizeEntropymat(Hmat, Hmask, -5, 5)
+HBlurMat = myCv.blurMat(HnormMat, maskMat)
 
-Hflat = H0.flatten()
-H = H0 - Hflat.mean()
-H = H / np.var(Hflat[maskBflat])
-uc = 10
-lc = -1
-H[H > uc] = uc
-H[H < lc] = lc
+# entropy threshold
+Hthresh = 0.6 # lower means more points accepted
+maskH = HBlurMat < Hthresh
+l = 8
+thresh = np.round(l*l*0.5).astype(int)
+# create a coarse grid, each block in the grid is a mask for an interesting block
+maskHGridSmall, maskHGridBig = myCv.gridSpace(np.invert(maskH), l, thresh)
 
-H = H - H.min()
-H = H / H.max()
+rgbH = np.copy(rgbBlurMat)
+rgbH[np.invert(maskHGridBig)] = 0
+
+# finite differences
+hs, ws = maskHGridSmall.shape
+gradMat = np.zeros((hs, ws, 8))
 
 
 #------------------------------------------------------------------------------
 # some plotting
 plt.close('all')
 
-plt.figure('H')
-plt.title('H')
-plt.imshow(H)
+plt.figure()
+plt.spy(maskHGridSmall)
 
-plt.figure('H hist')
-plt.title('H hist')
-plt.hist(H.flatten(), density=True, bins = 1000)
+plt.figure('rgb entropy')
+plt.title('rgb entropy')
+plt.imshow(HBlurMat)
 
-vdp.plotMask(maskMat, 'maskMat')
+plt.figure('mask')
+plt.title('mask')
+plt.imshow(maskMat)
 
-vdp.plotRgbMats(redMat, greenMat, blueMat, 'RGB frame 1')
-vdp.plotRgbMats(redBlur, greenBlur, blueBlur, 'RGB frame 1 blur')
+plt.figure('rgb frame' + str(frame))
+plt.title('rgb frame ' + str(frame))
+plt.imshow(rgbMat)
 
+frame += 1
+rgbMat, xyzMat, maskMat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame)
+plt.figure('rgb frame' + str(frame))
+plt.title('rgb frame ' + str(frame))
+plt.imshow(rgbMat)
 
+plt.figure('rgb entropy')
+plt.title('rgb entropy')
+plt.imshow(HnormMat)
+
+plt.figure('rgb entropy filtered')
+plt.title('rgb entropy filtered')
+plt.imshow(rgbH)
+
+plt.figure('rgb H hist')
+plt.title('rgb H hist')
+plt.hist(HnormMat.flatten(), density=True, bins = 300)
+
+if plotOpen3d:
+    pcd, xyz, rgb = vid.genPointCloud(xyzMat, rgbMat)
+    o3d.visualization.draw_geometries([pcd])
 
 if plotRgbHist:
     # compute joint pdf of RGB data
-    rgbPdf = myCv.estimateRgbPdf(redBlur, greenBlur, blueBlur, maskMatB)
-    vdp.plotRgbHistogram(rgb, rgbPdf)
+    pcd, xyz, rgb = vid.genPointCloud(xyzMat, rgbMat)
+    rgbPdf = myCv.estimateRgbPdf(rgbBlurMat[:,:,0], rgbBlurMat[:,:,1], rgbBlurMat[:,:,2], maskMat)
+    vdp.plotRgbHistogram(rgb*255, rgbPdf)
+    
+# # plt.figure('xyz H hist')
+# # plt.title('xyz H hist')
+# # plt.hist(H1mat.flatten(), density=True, bins = 300)
+
+# vdp.plotMask(maskMat, 'maskMat')
+
+# frm = str(frame)
+# vdp.plotRgbMats(redMat, greenMat, blueMat, 'RGB frame ' + frm)
+# vdp.plotRgbMats(redBlur, greenBlur, blueBlur, 'RGB blur frame ' + frm)
+# vdp.plotRgbMats(rM, gM, bM, 'RGB blur mask frame ' + frm)
+
+
         
-if plotOpen3d:
+# if plotOpen3d: 
+#     funGetFrame = ft.partial(vid.generateFrameData, vidTensorList, vdid, pixelXPosMat, pixelYPosMat)
     
-    funGetFrame = ft.partial(vid.generateFrameData, vidTensorList, vdid, pixelXPosMat, pixelYPosMat)
+#     pcd, xMat, yMat, zMat, redMat, greenMat, blueMat, xyz, rgb = funGetFrame(frame)
+#     vdp.plot_Open3d(pcd)
     
-    frame = 0
-    pcd1, xMat, yMat, zMat, redMat, greenMat, blueMat, xyz, rgb = funGetFrame(frame)
+#     #frame = 0
+#     #pcd1, xMat, yMat, zMat, redMat, greenMat, blueMat, xyz, rgb = funGetFrame(frame)
+#     #frame = nFrms-1
+#     #pcd2, xMat, yMat, zMat, redMat, greenMat, blueMat, xyz, rgb = funGetFrame(frame)
+#     #vdp.plotDual_Open3d(pcd1, pcd2)
     
-    frame = nFrms-1
-    pcd2, xMat, yMat, zMat, redMat, greenMat, blueMat, xyz, rgb = funGetFrame(frame)
-    
-    vdp.plotDual_Open3d(pcd1, pcd2)
-    
-    vdp.plot3d(xyz)
+#     #vdp.plot3d(xyz)
 
