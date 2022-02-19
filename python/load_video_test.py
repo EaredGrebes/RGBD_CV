@@ -1,5 +1,5 @@
 plotOpen3d = False
-plotRgbHist = True
+plotRgbHist = False
 
 # packages
 import sys
@@ -49,69 +49,84 @@ print('number of frames: ', nFrms)
 # create object for handling CV functions
 myCv = cvFun.myCv(height, width) 
 
-# get frame mats
-frame = 25
-rgbMat, xyzMat, maskMat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame)
+# get frame 1 mats
+print('frame 1 mats')
+frame1 = 15
+rgbMat, xyzMat, maskMat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
+
+depthMat = -xyzMat[:,:,2]
+
+greyMat = 0.299*rgbMat[:,:,0] + 0.587*rgbMat[:,:,1] + 0.114*rgbMat[:,:,2]
+greyMat = greyMat.astype(int)
+greyBlurMat = myCv.blurMat(greyMat, maskMat).astype(dtype = np.ubyte)
 
 # blur RGB
-print('blurring')
 rgbBlurMat = np.zeros((height, width, 3), dtype = np.ubyte)
 for clr in range(3):
     rgbBlurMat[:,:,clr] = myCv.blurMat(rgbMat[:,:,clr], maskMat).astype(dtype = np.ubyte)
+    
 
-# compute rgb entropy
-Hmat, Hmask = myCv.computeImageEntropy(rgbBlurMat[:,:,0], rgbBlurMat[:,:,1], rgbBlurMat[:,:,2], maskMat)
-HnormMat = cvFun.normalizeEntropymat(Hmat, Hmask, -5, 5)
-HBlurMat = myCv.blurMat(HnormMat, maskMat)
+# compute rgb entropy on a course grid
+# l = 16
+# coarseGridHMat, coarseGridHMaskMat = myCv.coarseGridEntropy(rgbBlurMat[:,:,0], rgbBlurMat[:,:,1], rgbBlurMat[:,:,2], maskMat, l)
+# HnormMat = cvFun.normalizeEntropymat(coarseGridHMat, coarseGridHMaskMat, -4, 4)
+
+Hmat, Hmask = myCv.computeWindowedImageEntropy(rgbBlurMat, maskMat)
+HnormMat = cvFun.normalizeEntropymat(Hmat, Hmask, -4, 4)
+
+HdiffMat = -myCv.LoGMat(HnormMat, Hmask)
+HdiffMat = cvFun.normalizeEntropymat(HdiffMat, Hmask, -4, 4)
 
 # entropy threshold
-Hthresh = 0.6 # lower means more points accepted
-maskH = HBlurMat < Hthresh
-l = 8
-thresh = np.round(l*l*0.5).astype(int)
-# create a coarse grid, each block in the grid is a mask for an interesting block
-maskHGridSmall, maskHGridBig = myCv.gridSpace(np.invert(maskH), l, thresh)
+# Hthresh = 0.6 # lower means more points accepted
+# coarseGridHMaskMat = HnormMat > Hthresh
 
-rgbH = np.copy(rgbBlurMat)
-rgbH[np.invert(maskHGridBig)] = 0
+# rgbH = np.copy(rgbBlurMat)
+# rgbH[np.invert(maskHGrid)] = 0
 
-# finite differences
-hs, ws = maskHGridSmall.shape
-gradMat = np.zeros((hs, ws, 8))
+# get frame 2 mats
+print('frame 2 mats')
+frame2 = frame1 + 1
+rgb2Mat, xyz2Mat, mask2Mat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame2)
+
+grey2Mat = 0.299*rgb2Mat[:,:,0] + 0.587*rgb2Mat[:,:,1] + 0.114*rgb2Mat[:,:,2]
+grey2Mat = grey2Mat.astype(int)
+grey2BlurMat = myCv.blurMat(grey2Mat, maskMat).astype(dtype = np.ubyte)
+
+# blur RGB
+rgb2BlurMat = np.zeros((height, width, 3), dtype = np.ubyte)
+for clr in range(3):
+    rgb2BlurMat[:,:,clr] = myCv.blurMat(rgb2Mat[:,:,clr], mask2Mat).astype(dtype = np.ubyte)
+   
 
 
 #------------------------------------------------------------------------------
 # some plotting
 plt.close('all')
 
-plt.figure()
-plt.spy(maskHGridSmall)
-
-plt.figure('rgb entropy')
-plt.title('rgb entropy')
-plt.imshow(HBlurMat)
-
 plt.figure('mask')
 plt.title('mask')
 plt.imshow(maskMat)
 
-plt.figure('rgb frame' + str(frame))
-plt.title('rgb frame ' + str(frame))
-plt.imshow(rgbMat)
+plt.figure('rgb frame' + str(frame1))
+plt.title('rgb frame ' + str(frame1))
+plt.imshow(rgbBlurMat)
 
-frame += 1
-rgbMat, xyzMat, maskMat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame)
-plt.figure('rgb frame' + str(frame))
-plt.title('rgb frame ' + str(frame))
-plt.imshow(rgbMat)
+plt.figure('grey frame' + str(frame1))
+plt.title('grey frame ' + str(frame1))
+plt.imshow(greyBlurMat)
+
+plt.figure('rgb frame' + str(frame2))
+plt.title('rgb frame ' + str(frame2))
+plt.imshow(rgb2BlurMat)
 
 plt.figure('rgb entropy')
 plt.title('rgb entropy')
 plt.imshow(HnormMat)
 
-plt.figure('rgb entropy filtered')
-plt.title('rgb entropy filtered')
-plt.imshow(rgbH)
+plt.figure('H diff')
+plt.title('H diff')
+plt.imshow(HdiffMat)
 
 plt.figure('rgb H hist')
 plt.title('rgb H hist')

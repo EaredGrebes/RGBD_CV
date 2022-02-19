@@ -165,33 +165,34 @@ def getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, fr
     maskMat = maskTens[:,:,frame]
     return rgbMat, xyzMat, maskMat
 
-    
+
 #------------------------------------------------------------------------------
-def genPointCloud(xyzMat, rgbMat):
+def genPointCloud(xyzMat, rgbMat, maskMat):
     
+    maskFlat = maskMat.flatten()
     xyz = flattenCombine(xyzMat)
     rgb = flattenCombine(rgbMat)
-    rgb = rgb / 255
+    
+    xyz = xyz[maskFlat,:]
+    rgb = rgb[maskFlat,:]
     
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(xyz)
     pcd.colors = o3d.utility.Vector3dVector(rgb)
     
-    return pcd, xyz, rgb
+    return xyz, rgb
 
 
 #------------------------------------------------------------------------------
-def generateFrameData(vidTensorList, vdid, pixelXPosMat, pixelYPosMat, frame):
-    print('getting frame: ', frame)
+def genOpen3dPointCloud(xyzMat, rgbMat, maskMat):
     
-    redMat, greenMat, blueMat, depth8LMat, depth8UMat = getFrameMats(vidTensorList, vdid, frame)
+    xyz, rgb = genPointCloud(xyzMat, rgbMat, maskMat)
     
-    xMat, yMat, zMat = genXYZMats(depth8LMat, depth8UMat, pixelXPosMat, pixelYPosMat)
-        
-    pcd, xyz, rgb = genPointCloud(xMat, yMat, zMat, redMat, greenMat, blueMat)  
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(xyz)
+    pcd.colors = o3d.utility.Vector3dVector(rgb / 255)  # open3d expects color between [0, 1]
     
-    return pcd, xMat, yMat, zMat, redMat, greenMat, blueMat, xyz, rgb
-
+    return pcd, xyz, rgb
 
 
 
