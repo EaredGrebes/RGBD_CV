@@ -10,16 +10,19 @@ import time
 import multiprocessing as mp
 import open3d as o3d
 import functools as ft
-import cv_functions as cvFun
 
 # custom functions
+sys.path.insert(1, 'functions')
+
 import video_functions as vid
 import plot_functions as vdp
+import cv_functions as cvFun
 
 print("Number of cpu: ", mp.cpu_count())
     
+
 #------------------------------------------------------------------------------
-# data configuration
+# data configuration and loading
 
 # calibration data
 folder = '../data/'
@@ -35,12 +38,11 @@ videoDat = [{'filename': folder + 'videoCaptureTest1.avi', 'channel': 0}, \
             {'filename': folder + 'videoCaptureTest2.avi', 'channel': 0}, \
             {'filename': folder + 'videoCaptureTest3.avi', 'channel': 0}] 
     
-#------------------------------------------------------------------------------
-# load data
 start = time.time()
 redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens = vid.loadDataSet(videoDat, vdid, calName, numpyName)
 print('timer:', time.time() - start)
    
+
 #------------------------------------------------------------------------------
 # do some processing
 (height, width, nFrms) = redTens.shape
@@ -99,9 +101,8 @@ for clr in range(3):
     rgb2BlurMat[:,:,clr] = myCv.blurMat(rgb2Mat[:,:,clr], mask2Mat).astype(dtype = np.ubyte)
    
 
-
 #------------------------------------------------------------------------------
-# some plotting
+# plotting
 plt.close('all')
 
 plt.figure('mask')

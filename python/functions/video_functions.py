@@ -66,7 +66,7 @@ def loadDataSet(videoDat, vdid, calName, numpyName):
             
             # mask tensor
             maskMat = np.full((height, width), True, dtype=bool)
-            tmp = (redTens[:,:,frame] + greenTens[:,:,frame] + blueTens[:,:,frame]) == 0
+            tmp = (redTens[:,:,frame] + greenTens[:,:,frame] + blueTens[:,:,frame]) < 10
             tmp2 = zMat > zLim_mm 
             tmp3 = np.logical_or(tmp, tmp2)
             maskMat[tmp2] = False
@@ -161,8 +161,8 @@ def getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, fr
     
     rgbMat = np.stack((redTens[:,:,frame], greenTens[:,:,frame], blueTens[:,:,frame]), axis=2)
     xyzMat = np.stack((xTens[:,:,frame], yTens[:,:,frame], zTens[:,:,frame]), axis=2)
-    
     maskMat = maskTens[:,:,frame]
+    
     return rgbMat, xyzMat, maskMat
 
 

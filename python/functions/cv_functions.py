@@ -104,7 +104,7 @@ def computeRgbMatShiftError(rgbMat1, rgbMat2, zMat1, zMat2, mask1, mask2, l, ind
     return fr + fg + fb + zScale * fz
 
 
-#--------------------------------------------------------------------------
+#------------------------------------------------------------------------------
 def normalizeEntropymat(Hmat, Hmask, lc, uc):
     
     Hflat = Hmat.flatten()
@@ -124,6 +124,10 @@ def normalizeEntropymat(Hmat, Hmask, lc, uc):
     
     return H
     
+#------------------------------------------------------------------------------
+def rgbToGreyMat(rgbMat):
+    return 0.299*rgbMat[:,:,0] + 0.587*rgbMat[:,:,1] + 0.114*rgbMat[:,:,2]
+
 
 # ~~ myCv class ~~
 class myCv:

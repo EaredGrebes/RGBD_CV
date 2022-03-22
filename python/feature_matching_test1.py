@@ -1,264 +1,234 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import time
+import sys
+import open3d as o3d
 
-###############################################################################
-# Functions 
+ # custom functions
+sys.path.insert(1, 'functions')
+import video_functions as vid
+#import feature_detection_functions as fd
+import feature_detection_functions_gpu as fd
+import cv_functions as cvFun
 
-#------------------------------------------------------------------------------
-def quadraticSurface(f, B):
-    
-    fScaled = (f - f[-1])
-    
-    # compute least squares coefficients for quadratic cost surface
-    K = np.matmul(B, fScaled[0:-1])
-    
-    # gradient
-    gradient = K[[0,1]]
-    
-    # compute eigen values of the surface
-    a = K[3]
-    c = K[2]/2
-    b = K[4]
-    
-    D = np.sqrt((a-b)**2 + 4*c*c)
-    eig1 = 0.5 * (a + b + D)  # this should be the maximum eigvec
-    eig2 = 0.5 * (a + b - D)
-    
-    eigVec1 = np.array([1, b - a + D])
-    eigVec1  = np.abs(eigVec1) # put the eigen vector in the the first quadrant
-    eigVec1 = eig1 * eigVec1 / np.sqrt(np.sum(eigVec1 * eigVec1))
-    
-    return eig1, eig2, eigVec1, gradient
-
-
-#------------------------------------------------------------------------------
-def findCornerPoints(greyMat, maskMat, pixelOffsetMat, B, nMax):
-    
-    height, width = greyMat.shape
-    
-    gradxMat = np.zeros((height, width))
-    gradyMat = np.zeros((height, width))
-    gradMat = np.zeros((height, width))
-    crossProdxMat = np.zeros((height, width))
-    crossProdyMat = np.zeros((height, width))
-    
-    f = np.zeros((nP))
-    maskVec = np.zeros((nP))
-    
-    # eigen surface for each pixel
-    for ii in range(3, height-3):
-        for jj in range(3, width-3):
-            
-            for p in range(nP):
-                
-                x = ii + pixelOffsetMat[p,0]
-                y = jj + pixelOffsetMat[p,1]
-                
-                f[p] = greyMat[x, y]
-                maskVec[p] = maskMat[x, y]
-              
-            if maskVec.sum() == nP:
-                eig1, eig2, eigVec1, gradient = quadraticSurface(f, B)
-                
-                gradxMat[ii,jj] = gradient[0] 
-                gradyMat[ii,jj] = gradient[1] 
-    
-    # change in gradient for each pixel
-    # eigen surface for each pixel
-    l = 2
-    for ii in range(3, height-3):
-        for jj in range(3, width-3):
-            
-            gradx = 1 * (gradxMat[ii-l,jj-l] * gradyMat[ii+l,jj-l] - gradyMat[ii-l,jj-l] * gradxMat[ii+l,jj-l]) + \
-                    2 * (gradxMat[ii-l,jj  ] * gradyMat[ii+l,jj  ] - gradyMat[ii-l,jj  ] * gradxMat[ii+l,jj  ]) + \
-                    1 * (gradxMat[ii-l,jj+l] * gradyMat[ii+l,jj+l] - gradyMat[ii-l,jj-l] * gradxMat[ii+l,jj-l]) 
-            
-            
-            grady = 1 * (gradxMat[ii-l,jj-l] * gradyMat[ii-l,jj+l] - gradyMat[ii-l,jj-l] * gradxMat[ii-l,jj+l]) + \
-                    2 * (gradxMat[ii,  jj-l] * gradyMat[ii,  jj+l] - gradyMat[ii,  jj-l] * gradxMat[ii,  jj+l]) + \
-                    1 * (gradxMat[ii+l,jj-l] * gradyMat[ii+l,jj+l] - gradyMat[ii+l,jj-l] * gradxMat[ii+l,jj+l])
-            
-            crossProdxMat[ii,jj]  = gradx 
-            crossProdyMat[ii,jj] = grady
-            gradMat[ii,jj] = np.sqrt(gradx*gradx + grady*grady)
-            
-    
-    # coarse grid
-    c = 8
-    thresh = 130
-    coarseGradMat = np.zeros((height, width))
-    #cornerMask = np.full((height, width), False, dtype = bool)
-    winMask = np.full((height, width), False, dtype = bool)
-    for ii in range(c, height-c):
-        for jj in range(c, width-c):
-    
-            if gradMat[ii, jj] > thresh:
-                
-                subMat = gradMat[ii-c:ii+c, jj-c:jj+c]
-                
-                if gradMat[ii,jj] >= subMat.max():
-                    coarseGradMat[ii, jj] = gradMat[ii, jj]
-                    #cornerMask[ii, jj] = True
-                    #winMask[ii-c:ii+c, jj-c:jj+c] = True
-                    
-    vec = coarseGradMat.flatten()
-    
-    start = time.time()
-    vecArgSort = vec.argsort()
-    print('sort timer:', time.time() - start)
-       
-    idxMax = vecArgSort[-nMax:]  # argsort puts the maximum value at the end
-    idx2dMax = np.array(np.unravel_index(idxMax, (height, width)))
-
-    vec2 = np.full((height * width), False, dtype = bool)
-    vec2[idxMax] = True
-    cornerMask = vec2.reshape((height, width))
-    
-    for ii in range(c, height-c):
-        for jj in range(c, width-c):
-            if cornerMask[ii, jj]:
-                
-                winMask[ii-c:ii+c, jj-c:jj+c] = True
-                
-    
-                    
-    return cornerMask, winMask, coarseGradMat, idx2dMax, gradMat
-
-
-#--------------------------------------------------------------------------
-def computeMatError(mat1, mat2, mask):
-    matErr = mat1 - mat2
-    f = np.sum(matErr[mask] * matErr[mask]) / np.sum(mask).astype(float)
-    #f = np.sum(np.abs(matErr))
-    return f
-
-
-#------------------------------------------------------------------------------
-def computeMatchCost(rgb1Mat, rgb2Mat, mask1Mat, mask2Mat, id2dMax1, id2dMax2):
-    
-    l = 8
-
-    mask = np.logical_and(mask1Mat[id2dMax1[0]-l:id2dMax1[0]+l, id2dMax1[1]-l:id2dMax1[1]+l], mask2Mat[id2dMax2[0]-l:id2dMax2[0]+l, id2dMax2[1]-l:id2dMax2[1]+l])
-    
-    fr = computeMatError(rgb1Mat[id2dMax1[0]-l:id2dMax1[0]+l, id2dMax1[1]-l:id2dMax1[1]+l, 0], rgb2Mat[id2dMax2[0]-l:id2dMax2[0]+l, id2dMax2[1]-l:id2dMax2[1]+l, 0], mask)
-    fg = computeMatError(rgb1Mat[id2dMax1[0]-l:id2dMax1[0]+l, id2dMax1[1]-l:id2dMax1[1]+l, 0], rgb2Mat[id2dMax2[0]-l:id2dMax2[0]+l, id2dMax2[1]-l:id2dMax2[1]+l, 0], mask)
-    fb = computeMatError(rgb1Mat[id2dMax1[0]-l:id2dMax1[0]+l, id2dMax1[1]-l:id2dMax1[1]+l, 0], rgb2Mat[id2dMax2[0]-l:id2dMax2[0]+l, id2dMax2[1]-l:id2dMax2[1]+l, 0], mask)
-    
-    f = fr + fg + fb
-    return f
-
-
-#--------------------------------------------------------------------------
-def drawBox(rgbMat, x, y, l):
-
-    c = np.array([200, 0, 200], dtype = np.ubyte)
-    rgbMat[x-l:x+l, y-l, :] = c
-    rgbMat[x-l:x+l, y+l, :] = c
-    
-    rgbMat[x-l, y-l:y+l, :] = c
-    rgbMat[x+l, y-l:y+l, :] = c
-    
+loadData = True
  
 #------------------------------------------------------------------------------
-###############################################################################
+# data configuration and loading
+
+if loadData:
+    
+     # calibration data
+    folder = '../data/'
+    calName = folder + 'calibration.h5'
+    numpyName = folder + 'rawData.npz'
+    
+     # video streams
+    vdid = {'blue': 0, 'green': 1, 'red': 2, 'depth8L': 3, 'depth8U': 4}
+    
+    videoDat = [{'filename': folder + 'videoCaptureTest1.avi', 'channel': 0}, \
+                {'filename': folder + 'videoCaptureTest1.avi', 'channel': 1}, \
+                {'filename': folder + 'videoCaptureTest1.avi', 'channel': 2}, \
+                {'filename': folder + 'videoCaptureTest2.avi', 'channel': 0}, \
+                {'filename': folder + 'videoCaptureTest3.avi', 'channel': 0}] 
+         
+    start = time.time()
+    redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens = vid.loadDataSet(videoDat, vdid, calName, numpyName)
+    print('timer:', time.time() - start)
+    
+
+#------------------------------------------------------------------------------
+# get frames
+
+(height, width, nFrms) = redTens.shape
+print('number of frames: ', nFrms)
+
+# create object for handling CV functions
+myCv = cvFun.myCv(height, width) 
+
+# get frame 1 mats
+print('frame 1 mats')
+frame1 = 24
+rgb1Mat, xyz1Mat, mask1Mat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
+grey1Mat = cvFun.rgbToGreyMat(rgb1Mat).astype(int) 
+
+print('frame 2 mats')
+frame2 = frame1 + 1
+rgb2Mat, xyz2Mat, mask2Mat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame2)
+grey2Mat = cvFun.rgbToGreyMat(rgb2Mat).astype(int) 
+
+ 
+#------------------------------------------------------------------------------
 # Testing
+nMax = 150
+cornerObj = fd.corner_detector_class()
 
-nMax = 100
+print('corner frame 1 detection')  
+corner1Mask, coarseGradMat, cornerIdx1, gradMat = cornerObj.findCornerPoints(grey1Mat, mask1Mat, nMax)
 
-# the FAST detector offset, with the 0,0 point added at the end
-pixelOffsetMat = np.array([[-3,  0],
-                        [-3,  1],
-                        [-2,  2],
-                        [-1,  3],
-                        [ 0,  3],
-                        [ 1,  3],
-                        [ 2,  2],
-                        [ 3,  1],
-                        [ 3,  0],
-                        [ 3, -1],
-                        [ 2, -2],
-                        [ 1, -3],
-                        [ 0, -3],
-                        [-1, -3],
-                        [-2, -2],
-                        [-3, -1],
-                        [ 0,  0]])
+print('corner frame 2 detection')
+corner2Mask, coarseGradMat, cornerIdx2, grad2Mat = cornerObj.findCornerPoints(grey2Mat, mask2Mat, nMax)
 
-# create least squares matrix for computing quadratic model of cost function from offset error pointsn
-nP, _ = pixelOffsetMat.shape 
-A = np.zeros((nP-1, 5))
-for offset in range(nP-1):
-    x = pixelOffsetMat[offset, 0]
-    y = pixelOffsetMat[offset, 1]
-    
-    A[offset, :] = np.array([x, y, x*y, x*x, y*y])
-
-B = np.matmul(np.linalg.inv(np.matmul(A.T, A)), A.T)
-    
-corner1Mask, win1Mask, coarseGradMat, idx2dMax1, gradMat = findCornerPoints(greyMat, maskMat, pixelOffsetMat, B, nMax)
-rgb1Win = np.copy(rgbBlurMat)
-rgb1Win[np.invert(win1Mask)] = 0  
-
-corner2Mask, win2Mask, coarseGradMat, idx2dMax2, grad2Mat = findCornerPoints(grey2Mat, mask2Mat, pixelOffsetMat, B, nMax)
-rgb2Win = np.copy(rgb2BlurMat)
-rgb2Win[np.invert(win2Mask)] = 0  
-
+print('corner matching')
 costMatrix = np.zeros((nMax, nMax))
 for id1 in range(nMax):
     for id2 in range(nMax):
-        
-        costMatrix[id1, id2] = computeMatchCost(rgbBlurMat, rgb2BlurMat, maskMat, mask2Mat, idx2dMax1[:,id1], idx2dMax2[:,id2])
+        costMatrix[id1, id2] = fd.computeMatchCost(rgb1Mat, rgb2Mat, mask1Mat, mask2Mat, cornerIdx1[:,id1], cornerIdx2[:,id2]) 
 
+# find a simpler way of doing this
 colMin = costMatrix.argmin(axis = 0)
-fMin = costMatrix.min(axis = 0)
-               
+rowMin = costMatrix.argmin(axis = 1)
+fcolMin = costMatrix.min(axis = 0)
+
+match1Mat = np.zeros((nMax, nMax))
+match2Mat = np.zeros((nMax, nMax))
+
+match1Mat[colMin, np.arange(nMax)] = 1
+match2Mat[np.arange(nMax), rowMin] = 1
+
+matchMat = (match1Mat==1) & (match2Mat ==1)
+meanMatchCost = costMatrix[matchMat].mean()
+
+idxMatch = (np.arange(1, nMax+1) @ matchMat) - 1
+
+idxIm2 = np.arange(nMax)[idxMatch >= 0]
+idxIm1 = idxMatch[idxMatch >= 0]
+  
+cornerMatchedIdx1 = cornerIdx1[:, idxIm1]
+cornerMatchedIdx2 = cornerIdx2[:, idxIm2]
+
+# 3-d frame registration
+print('3-d transformation')
+
+l = 3 # create a box of (2l+1) around each center point
+nBox = (2*l + 1) * (2*l + 1)
+nMatchedPoints = cornerMatchedIdx1.shape[1]
+print('Number of matched points: {}'.format(nMatchedPoints))
+
+xyzPoints1 = np.zeros((nBox * nMatchedPoints, 3))
+xyzPoints2 = np.zeros((nBox * nMatchedPoints, 3))
+
+rgbPoints1 = np.zeros((nBox * nMatchedPoints, 3))
+rgbPoints2 = np.zeros((nBox * nMatchedPoints, 3))
+
+rgbPoints1[:,0] = 255
+rgbPoints1[:,1] = 0
+rgbPoints1[:,2] = 0
+
+rgbPoints2[:,0] = 0
+rgbPoints2[:,1] = 255
+rgbPoints2[:,2] = 0
+
+def computeVectorDistances(xyzPoints1, xyzPoints2):
+    
+    xyzError = xyzPoints1 - xyzPoints2
+    xyzDist = np.sqrt(np.sum(xyzError*xyzError, axis = 1))
+    return xyzDist
+
+
+def addPoints(points, mat, center_x, center_y, l, nBox):
+    points[ii*nBox:(ii+1)*nBox, 0] = mat[center_x-l:center_x+l+1, center_y-l:center_y+l+1, 0].flatten()
+    points[ii*nBox:(ii+1)*nBox, 1] = mat[center_x-l:center_x+l+1, center_y-l:center_y+l+1, 1].flatten()
+    points[ii*nBox:(ii+1)*nBox, 2] = mat[center_x-l:center_x+l+1, center_y-l:center_y+l+1, 2].flatten()
+    
+def solveTransform(xyzPoints1, xyzPoints2):
+    
+    Npoints = xyzPoints1.shape[0]
+    mean1 = xyzPoints1.mean(axis = 0)
+    mean2 = xyzPoints2.mean(axis = 0)
+
+    xyzPoints1_c = xyzPoints1 - mean1[None,:]
+    xyzPoints2_c = xyzPoints2 - mean2[None,:]
+
+    # cross covariance matrix
+    C = (1/pointMask.sum()) * xyzPoints1_c.T @ xyzPoints2_c
+    U, S, VT = np.linalg.svd(C, full_matrices=True)
+
+    R = VT.T @ U.T
+    t = mean2 - R @ mean1
+
+    # apply transform
+    xyzPoints1_2 = t[None,:].T + R @ xyzPoints1.T
+    xyzPoints1_2 = xyzPoints1_2.T
+    
+    distanceErrors = computeVectorDistances(xyzPoints1_2, xyzPoints2)
+    
+    return R, t, distanceErrors, xyzPoints1_2
+
+    
+for ii in range(nMatchedPoints):
+    
+    center1_x = cornerMatchedIdx1[0,ii]
+    center1_y = cornerMatchedIdx1[1,ii]
+    addPoints(xyzPoints1, xyz1Mat, center1_x, center1_y, l, nBox)
+    #addPoints(rgbPoints1, rgb1Mat, center1_x, center1_y, l, nBox)
+    
+    center2_x = cornerMatchedIdx2[0,ii]
+    center2_y = cornerMatchedIdx2[1,ii]
+    addPoints(xyzPoints2, xyz2Mat, center2_x, center2_y, l, nBox)
+    #addPoints(rgbPoints2, rgb2Mat, center2_x, center2_y, l, nBox)
+ 
+pointMask = (abs(xyzPoints1[:,2]) > 0) & (abs(xyzPoints2[:,2]) > 0)
+
+xyzPoints1 = xyzPoints1[pointMask,:]
+xyzPoints2 = xyzPoints2[pointMask,:]
+
+rgbPoints1 = rgbPoints1[pointMask,:]
+rgbPoints2 = rgbPoints2[pointMask,:]
+
+distErr1 = computeVectorDistances(xyzPoints1, xyzPoints2)
+R, t, distErr2, xyzPoints1_2 = solveTransform(xyzPoints1, xyzPoints2)
+
+Npoints = xyzPoints2.shape[0]
+idxSmallestDist = np.argsort(distErr2)[:int(Npoints/2)]
+
+R, t, distErr2, xyzPoints1_2 = solveTransform(xyzPoints1[idxSmallestDist,:], xyzPoints2[idxSmallestDist,:])
+
+
+#------------------------------------------------------------------------------         
 # visualize matches
-matchId = 92
+plt.close('all')
 
-im1x = idx2dMax1[0, colMin[matchId]]
-im1y = idx2dMax1[1, colMin[matchId]]
+pcd1 = o3d.geometry.PointCloud()
+pcd1.points = o3d.utility.Vector3dVector(xyzPoints1_2)
+pcd1.colors = o3d.utility.Vector3dVector(rgbPoints1[idxSmallestDist,:] / 255)  # open3d expects color between [0, 1]
 
-im2x = idx2dMax2[0, matchId]
-im2y = idx2dMax2[1, matchId]
+pcd2 = o3d.geometry.PointCloud()
+pcd2.points = o3d.utility.Vector3dVector(xyzPoints2[idxSmallestDist,:])
+pcd2.colors = o3d.utility.Vector3dVector(rgbPoints2[idxSmallestDist,:] / 255)  # open3d expects color between [0, 1]
 
-rgb1Match = np.copy(rgbBlurMat)
-drawBox(rgb1Match, im1x, im1y, 9)
+o3d.visualization.draw_geometries([pcd1, pcd2])
 
-rgb2Match = np.copy(rgb2BlurMat)
-drawBox(rgb2Match, im2x, im2y, 9)
-
+Nmatches = cornerMatchedIdx1.shape[1]
+rgb1Match = np.copy(rgb1Mat)
+rgb2Match = np.copy(rgb2Mat)
+for ii in range(Nmatches):
+    
+    c = 255 * np.random.rand(3)
+    fd.drawBox(rgb1Match, cornerMatchedIdx1[0, ii], cornerMatchedIdx1[1, ii], 9, c.astype(np.ubyte))
+    fd.drawBox(rgb2Match, cornerMatchedIdx2[0, ii], cornerMatchedIdx2[1, ii], 9, c.astype(np.ubyte))
+    
 plt.figure('rgb  match' + str(frame1))
 plt.title('rgb match ' + str(frame1))
 plt.imshow(rgb1Match)
-
 
 plt.figure('rgb  match' + str(frame2))
 plt.title('rgb match ' + str(frame2))
 plt.imshow(rgb2Match)
 
-        
-#m1Mat = np.clip(m1Mat, -100, 100)
-gradNormMat = cvFun.normalizeEntropymat(gradMat, Hmask, 0, 10)
-
-
-plt.figure('rgb  win frame' + str(frame1))
-plt.title('rgb win frame ' + str(frame1))
-plt.imshow(rgb1Win)
-
-plt.figure('rgb  win frame' + str(frame2))
-plt.title('rgb win frame ' + str(frame2))
-plt.imshow(rgb2Win)
-
-plt.figure('gradNormMat')
-plt.title('gradNormMat')
-plt.imshow(gradNormMat)
 
 plt.figure('costMatrix')
 plt.title('costMatrix')
 plt.hist(costMatrix.flatten(), density=True, bins = 300)
 
-    
+plt.figure('fmin cost')
+plt.hist(fcolMin, density=True)
+
 plt.figure('coarseGradMat hist')
 plt.title('coarseGradMat hist')
 plt.hist(gradMat.flatten(), density=True, bins = 300)
+
+plt.figure('distErr')
+plt.title('distErr')
+plt.hist(distErr1, density=True, bins = 200)
+plt.hist(distErr2, density=True, bins = 200)

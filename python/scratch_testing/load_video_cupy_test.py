@@ -1,5 +1,4 @@
-plotOpen3d = False
-plotRgbHist = False
+plotOpen3d = True
 
 # packages
 import sys
@@ -76,10 +75,5 @@ if plotOpen3d:
     pcd, xyz, rgb = vid.genOpen3dPointCloud(xyzMat, rgbMat, maskMat)
     o3d.visualization.draw_geometries([pcd])
 
-if plotRgbHist:
-    # compute joint pdf of RGB data
-    pcd, xyz, rgb = vid.genPointCloud(xyzMat, rgbMat)
-    rgbPdf = myCv.estimateRgbPdf(rgbMat[:,:,0], rgbMat[:,:,1], rgbMat[:,:,2], maskMat)
-    vdp.plotRgbHistogram(rgb*255, rgbPdf)
-    
+
 
