@@ -119,8 +119,11 @@ void findLocalMax(float* localMaxMat,  // outputs
                
            localMaxMat[ii*width + jj] = mat[ii*width + jj];
            
-           int ii_course = __float2int_rd( __int2float_rn(ii) / __int2float_rn(c) );
-           int jj_course = __float2int_rd( __int2float_rn(jj) / __int2float_rn(c) );
+           //int ii_course = __float2int_rd( __int2float_rn(ii) / __int2float_rn(c) );
+           //int jj_course = __float2int_rd( __int2float_rn(jj) / __int2float_rn(c) );
+           
+           int ii_course = ii / c;
+           int jj_course = jj / c;
            
            courseMaxVec[ii_course * width_c + jj_course] = mat[ii*width + jj];
            pixelXLocVec[ii_course * width_c + jj_course] = ii;
@@ -239,19 +242,19 @@ def findCornerPoints(gradxMat, \
                      width):
     
     computeGradientMat(gradxMat,  \
-                            gradyMat,   \
-                            pixelOffsetMat, \
-                            B,              \
-                            greyMat,    \
-                            maskMat,    \
-                            height,         \
-                            width)
+                        gradyMat,   \
+                        pixelOffsetMat, \
+                        B,              \
+                        greyMat,    \
+                        maskMat,    \
+                        height,         \
+                        width)
         
     computeCrossProdMat(crossProdMat, \
-                              gradxMat, \
-                              gradyMat, \
-                              height, \
-                              width)   
+                        gradxMat, \
+                        gradyMat, \
+                        height, \
+                        width)   
     
     findLocalMax(coarseMaxMat,  \
                        courseMaxVec,  \

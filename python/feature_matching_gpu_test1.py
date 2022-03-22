@@ -13,7 +13,7 @@ import feature_detection_functions as fd
 import feature_detection_functions_gpu as fdgpu
 import cv_functions as cvFun
 
-loadData = False
+loadData = True
 runCPU = False
  
 #------------------------------------------------------------------------------
@@ -51,7 +51,7 @@ myCv = cvFun.myCv(height, width)
 
 # get frame 1 mats
 print('frame 1 mats')
-frame1 = 6
+frame1 = 20
 rgbMat, xyzMat, maskMat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
 greyMat = cvFun.rgbToGreyMat(rgbMat).astype(int) 
 height, width = maskMat.shape
@@ -110,32 +110,33 @@ fdgpu.findCornerPoints(gradxMat_gpu, \
                      c, 
                      height, 
                      width)
+    
+courseMaxVec_cpu = courseMaxVec_gpu.get()
+idxSorted = courseMaxVec_cpu.argsort()[-nMax:]
+
+idx2dMax_gpu = cp.zeros((2,nMax), dtype = cp.int32)
+idx2dMax_gpu[0,:] = pixelXVec_gpu[idxSorted]
+idx2dMax_gpu[1,:] = pixelYVec_gpu[idxSorted]    
+    
 print('timer:', time.time() - start)
     
+# verificiation
 gradxMat_cpu = gradxMat_gpu.get()    
 gradyMat_cpu = gradyMat_gpu.get()
 crossProdMat_cpu = crossProdMat_gpu.get()
 coarseMaxMat_cpu = coarseMaxMat_gpu.get()
-courseMaxVec_cpu = courseMaxVec_gpu.get()
-pixelXVec_cpu = pixelXVec_gpu.get()
-pixelYVec_cpu = pixelYVec_gpu.get()
 
 vec = coarseMaxMat_cpu.flatten()
 vecArgSort = vec.argsort()
 
-idxMax = vecArgSort[-nMax:]  # argsort puts the maximum value at the end
-idx2dMax = np.array(np.unravel_index(idxMax, (height, width)))
+#idxMax = vecArgSort[-nMax:]  # argsort puts the maximum value at the end
+#idx2dMax = np.array(np.unravel_index(idxMax, (height, width)))
+idx2dMax = idx2dMax_gpu.get()
 
-# alternative method
 maxVals1 = np.sort(vec)[-nMax:]
 maxVals2 = np.sort(courseMaxVec_cpu)[-nMax:]
 
-idxSorted = courseMaxVec_cpu.argsort()[-nMax:]
 
-idx2dMax_2 = np.zeros((2,nMax))
-
-idx2dMax_2[0,:] = pixelXVec_cpu[idxSorted]
-idx2dMax_2[1,:] = pixelYVec_cpu[idxSorted]
 
 
 #------------------------------------------------------------------------------
