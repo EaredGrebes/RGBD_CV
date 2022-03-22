@@ -91,14 +91,20 @@ void computeCrossProdMat(float* crossProdMat,  // outputs
 cp_findLocalMax = cp.RawKernel(r'''
 extern "C" __global__
 void findLocalMax(float* localMaxMat,  // outputs
-                  float* mat,           // inputs
+                  float* courseMaxVec,
+                  int* pixelXLocVec,
+                  int* pixelYLocVec,
+                  float* mat,          // inputs
                   int c,
                   int height, 
-                  int width) {
+                  int width,
+                  int height_c,
+                  int width_c) {
   
     int jj = blockIdx.x * blockDim.x  + threadIdx.x;
     int ii = blockIdx.y * blockDim.y  + threadIdx.y;
   
+    
     if( (ii >= c) && (ii < height-c) && (jj >= c) && (jj < width-c) ) {
         
         float maxVal = 0;
@@ -108,42 +114,22 @@ void findLocalMax(float* localMaxMat,  // outputs
                 maxVal = fmaxf( mat[(ii+iic)*width + jj+jjc], maxVal );
             }
         }
+        // pixel is a local maximum
        if (mat[ii*width + jj] >= maxVal) {
+               
            localMaxMat[ii*width + jj] = mat[ii*width + jj];
-       }
-    }
-}
-''', 'findLocalMax')
-
-
-cp_findCoarseMax = cp.RawKernel(r'''
-extern "C" __global__
-void findLocalMax(float* coarseMaxMat,  // outputs
-                  int*   pixelXloc,
-                  int*   pixelYloc,
-                  float* mat,           // inputs
-                  int c,
-                  int height, 
-                  int width) {
-  
-    int jj = blockIdx.x * blockDim.x  + threadIdx.x;
-    int ii = blockIdx.y * blockDim.y  + threadIdx.y;
-  
-    if( (ii >= c) && (ii < height-c) && (jj >= c) && (jj < width-c) ) {
-        
-        float maxVal = 0;
-        for (int iic = -c; iic <= c; iic++) {
-            for (int jjc = -c; jjc <= c; jjc++) {
            
-                maxVal = fmaxf( mat[(ii+iic)*width + jj+jjc], maxVal );
-            }
-        }
-       if (mat[ii*width + jj] >= maxVal) {
-           coarseMaxMat[ii*width + jj] = mat[ii*width + jj];
-       }
+           int ii_course = __float2int_rd( __int2float_rn(ii) / __int2float_rn(c) );
+           int jj_course = __float2int_rd( __int2float_rn(jj) / __int2float_rn(c) );
+           
+           courseMaxVec[ii_course * width_c + jj_course] = mat[ii*width + jj];
+           pixelXLocVec[ii_course * width_c + jj_course] = ii;
+           pixelYLocVec[ii_course * width_c + jj_course] = jj;
+       } 
     }
 }
 ''', 'findLocalMax')
+
 
 #------------------------------------------------------------------------------
   
@@ -215,7 +201,7 @@ def computeCrossProdMat(crossProdMat, gradxMat, gradyMat, height, width):
 
 
 #------------------------------------------------------------------------------
-def findLocalMax(coarseMaxMat, mat, c, height, width):
+def findLocalMax(localMaxMat, courseMaxVec, pixelXVec, pixelYVec, mat, localScale, height, width):
     
     # Grid and block sizes
     block = (8, 8)
@@ -223,36 +209,60 @@ def findLocalMax(coarseMaxMat, mat, c, height, width):
 
     # Call kernel
     cp_findLocalMax(grid, block,  \
-               (coarseMaxMat,   # outputs
+               (localMaxMat,   # outputs
+                courseMaxVec,
+                pixelXVec,
+                pixelYVec,
                 mat,            # inputs
-                cp.int32(c),
+                cp.int32(localScale),
                 cp.int32(height), 
-                cp.int32(width)) )     
+                cp.int32(width),
+                cp.int32(height / localScale), 
+                cp.int32(width / localScale)) )     
     
     
 #------------------------------------------------------------------------------
-def findCornerPoints(greyMat, maskMat, pixelOffsetMat, B, nMax):
+def findCornerPoints(gradxMat, \
+                     gradyMat, \
+                     crossProdMat, \
+                     coarseMaxMat, \
+                     courseMaxVec, \
+                     pixelXVec, \
+                     pixelYVec, \
+                     greyMat, \
+                     maskMat, \
+                     pixelOffsetMat, 
+                     B, 
+                     nMax, 
+                     c, 
+                     height, 
+                     width):
     
-    c = 8 # local scale
-    height, width = greyMat.shape
-    
-    gradxMat, gradyMat = computeGradientMat(pixelOffsetMat, B, greyMat, maskMat, height, width)
-    
-    crossProdMat = computeCrossProdMat(gradxMat, gradyMat, height, width)
-            
-    coarseGradMat = findLocalMax(crossProdMat, c, height, width)
+    computeGradientMat(gradxMat,  \
+                            gradyMat,   \
+                            pixelOffsetMat, \
+                            B,              \
+                            greyMat,    \
+                            maskMat,    \
+                            height,         \
+                            width)
         
-    vec = coarseGradMat.flatten()
-    vecArgSort = vec.argsort()
-
-    idxMax = vecArgSort[-nMax:]  # argsort puts the maximum value at the end
-    idx2dMax = np.array(np.unravel_index(idxMax, (height, width)))
-
-    vec2 = np.full((height * width), False, dtype = bool)
-    vec2[idxMax] = True
-    cornerMask = vec2.reshape((height, width))
+    computeCrossProdMat(crossProdMat, \
+                              gradxMat, \
+                              gradyMat, \
+                              height, \
+                              width)   
+    
+    findLocalMax(coarseMaxMat,  \
+                       courseMaxVec,  \
+                       pixelXVec,     \
+                       pixelYVec,     \
+                       crossProdMat,  \
+                       c,      \
+                       height, \
+                       width)
                     
-    return cornerMask, coarseGradMat, idx2dMax, crossProdMat
+    return 
 
 
 #--------------------------------------------------------------------------
@@ -278,12 +288,3 @@ def computeMatchCost(rgb1Mat, rgb2Mat, mask1Mat, mask2Mat, id2dMax1, id2dMax2):
     f = fr + fg + fb
     return f
 
-
-#--------------------------------------------------------------------------
-def drawBox(rgbMat, x, y, l, c):
-
-    rgbMat[x-l:x+l, y-l, :] = c
-    rgbMat[x-l:x+l, y+l, :] = c
-    
-    rgbMat[x-l, y-l:y+l, :] = c
-    rgbMat[x+l, y-l:y+l, :] = c

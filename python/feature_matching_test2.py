@@ -13,7 +13,8 @@ import feature_detection_functions as fd
 import feature_detection_functions_gpu as fdgpu
 import cv_functions as cvFun
 
-loadData = True
+loadData = False
+runCPU = False
  
 #------------------------------------------------------------------------------
 # data configuration and loading
@@ -50,14 +51,13 @@ myCv = cvFun.myCv(height, width)
 
 # get frame 1 mats
 print('frame 1 mats')
-frame1 = 25
+frame1 = 6
 rgbMat, xyzMat, maskMat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
 greyMat = cvFun.rgbToGreyMat(rgbMat).astype(int) 
 height, width = maskMat.shape
 
 #------------------------------------------------------------------------------
 # CPU implementation testing
-runCPU = True
 
 if runCPU:
     c = 8
@@ -74,55 +74,69 @@ if runCPU:
 c = 8
 nMax = 128
 
-nP = 16
-offsetMat = np.array([[-3, -3, -2, -1,  0,  1,  2,  3,  3,  3,  2,  1,  0, -1, -2, -3], \
-                      [ 0,  1,  2,  3,  3,  3,  2,  1,  0, -1, -2, -3, -3, -3, -2, -1]])            
+height_c = int(height / c)
+width_c = int(width / c)
 
-# create least squares matrix for computing quadratic model of cost function from offset error points
-A = np.zeros((nP, 5))
-for offset in range(nP):
-    x = offsetMat[0, offset]
-    y = offsetMat[1, offset]
-    
-    A[offset, :] = np.array([x, y, x*y, x*x, y*y])
+cornerObjGpu = fdgpu.corner_detector_class()
 
-B = np.matmul(np.linalg.inv(np.matmul(A.T, A)), A.T)
-
-pixelOffsetMat = cp.array(offsetMat, dtype = cp.int32, copy=False)
-B = cp.array(B, dtype = cp.float32, copy=False)
-
+# inputs
 greyMat_gpu = cp.array(greyMat, dtype = cp.float32)
 maskMat_gpu = cp.array(maskMat, dtype = bool)
 
+# working variables
 gradxMat_gpu = cp.zeros((height, width), dtype = cp.float32)
 gradyMat_gpu = cp.zeros((height, width), dtype = cp.float32)
 crossProdMat_gpu = cp.zeros((height, width), dtype = cp.float32)
 coarseMaxMat_gpu = cp.zeros((height, width), dtype = cp.float32)
 
-fdgpu.computeGradientMat(gradxMat_gpu,  \
-                        gradyMat_gpu,   \
-                        pixelOffsetMat, \
-                        B,              \
-                        greyMat_gpu,    \
-                        maskMat_gpu,    \
-                        height,         \
-                        width)
+# outputs
+courseMaxVec_gpu = cp.zeros(height_c * width_c, dtype = cp.float32)
+pixelXVec_gpu = cp.zeros(height_c * width_c, dtype = cp.int32)
+pixelYVec_gpu = cp.zeros(height_c * width_c, dtype = cp.int32)
+
+start = time.time()
+fdgpu.findCornerPoints(gradxMat_gpu, \
+                     gradyMat_gpu, \
+                     crossProdMat_gpu, \
+                     coarseMaxMat_gpu, \
+                     courseMaxVec_gpu, \
+                     pixelXVec_gpu, \
+                     pixelYVec_gpu, \
+                     greyMat_gpu, \
+                     maskMat_gpu, \
+                     cornerObjGpu.pixelOffsetMat, 
+                     cornerObjGpu.B, 
+                     nMax, 
+                     c, 
+                     height, 
+                     width)
+print('timer:', time.time() - start)
     
-fdgpu.computeCrossProdMat(crossProdMat_gpu, gradxMat_gpu, gradyMat_gpu, height, width)   
-
-c = 8
-fdgpu.findLocalMax(coarseMaxMat_gpu, crossProdMat_gpu, c, height, width)
-
 gradxMat_cpu = gradxMat_gpu.get()    
 gradyMat_cpu = gradyMat_gpu.get()
 crossProdMat_cpu = crossProdMat_gpu.get()
 coarseMaxMat_cpu = coarseMaxMat_gpu.get()
+courseMaxVec_cpu = courseMaxVec_gpu.get()
+pixelXVec_cpu = pixelXVec_gpu.get()
+pixelYVec_cpu = pixelYVec_gpu.get()
 
 vec = coarseMaxMat_cpu.flatten()
 vecArgSort = vec.argsort()
 
 idxMax = vecArgSort[-nMax:]  # argsort puts the maximum value at the end
 idx2dMax = np.array(np.unravel_index(idxMax, (height, width)))
+
+# alternative method
+maxVals1 = np.sort(vec)[-nMax:]
+maxVals2 = np.sort(courseMaxVec_cpu)[-nMax:]
+
+idxSorted = courseMaxVec_cpu.argsort()[-nMax:]
+
+idx2dMax_2 = np.zeros((2,nMax))
+
+idx2dMax_2[0,:] = pixelXVec_cpu[idxSorted]
+idx2dMax_2[1,:] = pixelYVec_cpu[idxSorted]
+
 
 #------------------------------------------------------------------------------
 # verification
@@ -133,13 +147,16 @@ rgb1Match = np.copy(rgbMat)
 
 for ii in range(Nmatches):
     
-    c = 255 * np.random.rand(3)
-    fd.drawBox(rgb1Match, idx2dMax[0, ii], idx2dMax[1, ii], 8, c.astype(np.ubyte))
+    color = 255 * np.random.rand(3)
+    fd.drawBox(rgb1Match, idx2dMax[0, ii], idx2dMax[1, ii], 8, color.astype(np.ubyte))
     
 plt.figure('rgb  frame 1 interest points')
 plt.title('rgb  frame 1 interest points')
 plt.imshow(rgb1Match)
 
+plt.figure('corner mask')
+plt.title('corner mask')
+plt.spy(coarseMaxMat_cpu)
 
 check1 = np.isclose(gradxMat, gradxMat_cpu)
 check2 = np.isclose(gradyMat, gradyMat_cpu)
