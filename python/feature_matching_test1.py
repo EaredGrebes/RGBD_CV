@@ -7,8 +7,7 @@ import open3d as o3d
  # custom functions
 sys.path.insert(1, 'functions')
 import video_functions as vid
-#import feature_detection_functions as fd
-import feature_detection_functions_gpu as fd
+import feature_detection_functions as fd
 import cv_functions as cvFun
 
 loadData = True
@@ -64,7 +63,7 @@ nMax = 150
 cornerObj = fd.corner_detector_class()
 
 print('corner frame 1 detection')  
-corner1Mask, coarseGradMat, cornerIdx1, gradMat = cornerObj.findCornerPoints(grey1Mat, mask1Mat, nMax)
+corner1Mask, coarseGradMat, cornerIdx1, gradMat = cornerObj.findCornerPoints(grey1Mat, mask1Mat, nMax) 
 
 print('corner frame 2 detection')
 corner2Mask, coarseGradMat, cornerIdx2, grad2Mat = cornerObj.findCornerPoints(grey2Mat, mask2Mat, nMax)

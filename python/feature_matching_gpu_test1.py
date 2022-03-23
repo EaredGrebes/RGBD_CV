@@ -51,7 +51,7 @@ myCv = cvFun.myCv(height, width)
 
 # get frame 1 mats
 print('frame 1 mats')
-frame1 = 20
+frame1 = 40
 rgbMat, xyzMat, maskMat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
 greyMat = cvFun.rgbToGreyMat(rgbMat).astype(int) 
 height, width = maskMat.shape
@@ -77,7 +77,7 @@ nMax = 128
 height_c = int(height / c)
 width_c = int(width / c)
 
-cornerObjGpu = fdgpu.corner_detector_class()
+cornerObjGpu = fdgpu.corner_detector_class(height, width, c, nMax)
 
 # inputs
 greyMat_gpu = cp.array(greyMat, dtype = cp.float32)
@@ -137,8 +137,6 @@ maxVals1 = np.sort(vec)[-nMax:]
 maxVals2 = np.sort(courseMaxVec_cpu)[-nMax:]
 
 
-
-
 #------------------------------------------------------------------------------
 # verification
 plt.close('all')
@@ -155,26 +153,27 @@ plt.figure('rgb  frame 1 interest points')
 plt.title('rgb  frame 1 interest points')
 plt.imshow(rgb1Match)
 
-plt.figure('corner mask')
-plt.title('corner mask')
-plt.spy(coarseMaxMat_cpu)
-
-check1 = np.isclose(gradxMat, gradxMat_cpu)
-check2 = np.isclose(gradyMat, gradyMat_cpu)
-check3 = np.isclose(crossProdMat, crossProdMat_cpu)
-check4 = np.isclose(coarseMaxMat, coarseMaxMat_cpu)
-
-plt.figure('check 1')
-plt.spy(check1)
-
-plt.figure('check 2')
-plt.spy(check2)
-
-plt.figure('check 3')
-plt.spy(check3)
-
-plt.figure('check 4')
-plt.spy(check4)
+if runCPU:
+    plt.figure('corner mask')
+    plt.title('corner mask')
+    plt.spy(coarseMaxMat_cpu)
+    
+    check1 = np.isclose(gradxMat, gradxMat_cpu)
+    check2 = np.isclose(gradyMat, gradyMat_cpu)
+    check3 = np.isclose(crossProdMat, crossProdMat_cpu)
+    check4 = np.isclose(coarseMaxMat, coarseMaxMat_cpu)
+    
+    plt.figure('check 1')
+    plt.spy(check1)
+    
+    plt.figure('check 2')
+    plt.spy(check2)
+    
+    plt.figure('check 3')
+    plt.spy(check3)
+    
+    plt.figure('check 4')
+    plt.spy(check4)
 
 
 

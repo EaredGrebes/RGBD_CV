@@ -138,7 +138,7 @@ void findLocalMax(float* localMaxMat,  // outputs
   
 class corner_detector_class:
 
-    def __init__(self): 
+    def __init__(self, height, width, c, nMax): 
         
         nP = 16
         offsetMat = np.array([[-3, -3, -2, -1,  0,  1,  2,  3,  3,  3,  2,  1,  0, -1, -2, -3], \
@@ -157,16 +157,63 @@ class corner_detector_class:
         self.pixelOffsetMat = cp.array(offsetMat, dtype = cp.int32, copy=False)
         self.B = cp.array(B, dtype = cp.float32, copy=False)
         
+        # matricies used in the corner detection computation
+        self.height = height
+        self.width = width
+        self.c = c
+        self.nMax = nMax
         
-    def findCornerPoints(self, greyMat, maskMat, nMax):
+        height_c = int(height / c)
+        width_c = int(width / c)
+        
+        # working variables
+        self.gradxMat = cp.zeros((height, width), dtype = cp.float32)
+        self.gradyMat = cp.zeros((height, width), dtype = cp.float32)
+        self.crossProdMat = cp.zeros((height, width), dtype = cp.float32)
+        self.coarseMaxMat = cp.zeros((height, width), dtype = cp.float32)
+
+        # outputs
+        self.courseMaxVec = cp.zeros(height_c * width_c, dtype = cp.float32)
+        self.courseMaxVec_cpu = np.zeros(height_c * width_c, dtype = np.float32)
+        self.pixelXVec = cp.zeros(height_c * width_c, dtype = cp.int32)
+        self.pixelYVec = cp.zeros(height_c * width_c, dtype = cp.int32)
+        
+        self.idx2dMax = cp.zeros((2,nMax), dtype = cp.int32)
+        
+    def findCornerPoints(self, greyMat, maskMat):
+        
         # greyMat and maskMat must be cupy arrays
-        return findCornerPoints(greyMat, maskMat, self.pixelOffsetMat, self.B, nMax)
+        findCornerPoints(self.gradxMat, \
+                        self.gradyMat, \
+                        self.crossProdMat, \
+                        self.coarseMaxMat, \
+                        self.courseMaxVec, \
+                        self.pixelXVec, \
+                        self.pixelYVec, \
+                        greyMat, \
+                        maskMat, \
+                        self.pixelOffsetMat, 
+                        self.B, 
+                        self.nMax, 
+                        self.c, 
+                        self.height, 
+                        self.width)
+            
+        self.courseMaxVec_cpu = self.courseMaxVec.get()
+        idxMaxSorted = self.courseMaxVec_cpu.argsort()[-self.nMax:]
+
+        self.idx2dMax[0,:] = self.pixelXVec[idxMaxSorted]
+        self.idx2dMax[1,:] = self.pixelYVec[idxMaxSorted]    
+            
+        return self.idx2dMax
 
 
 #------------------------------------------------------------------------------
 def computeGradientMat(gradxMat, gradyMat, pixelOffsetMat, B, imgMat, maskMat, height, width):
     
     nP = pixelOffsetMat.shape[1]
+    gradxMat *= 0
+    gradyMat *= 0
     
     # Grid and block sizes
     block = (8, 8)
@@ -189,7 +236,9 @@ def computeGradientMat(gradxMat, gradyMat, pixelOffsetMat, B, imgMat, maskMat, h
 
 #------------------------------------------------------------------------------
 def computeCrossProdMat(crossProdMat, gradxMat, gradyMat, height, width):
-
+    
+    crossProdMat *= 0
+    
     # Grid and block sizes
     block = (8, 8)
     grid = (int(width/block[0]), int(height/block[1]))
@@ -205,6 +254,11 @@ def computeCrossProdMat(crossProdMat, gradxMat, gradyMat, height, width):
 
 #------------------------------------------------------------------------------
 def findLocalMax(localMaxMat, courseMaxVec, pixelXVec, pixelYVec, mat, localScale, height, width):
+    
+    localMaxMat *= 0
+    courseMaxVec *= 0
+    pixelXVec *= 0
+    pixelYVec *= 0
     
     # Grid and block sizes
     block = (8, 8)
@@ -265,29 +319,7 @@ def findCornerPoints(gradxMat, \
                        height, \
                        width)
                     
-    return 
-
-
-#--------------------------------------------------------------------------
-def computeMatError(mat1, mat2, mask):
-    matErr = mat1 - mat2
-    f = np.sum(matErr[mask] * matErr[mask]) / np.sum(mask).astype(float)
-    #f = np.sum(np.abs(matErr))
-    return f
-
 
 #------------------------------------------------------------------------------
-def computeMatchCost(rgb1Mat, rgb2Mat, mask1Mat, mask2Mat, id2dMax1, id2dMax2):
-    
-    l = 7
-    maskMat1 = mask1Mat[id2dMax1[0]-l:id2dMax1[0]+l+1, id2dMax1[1]-l:id2dMax1[1]+l+1]
-    maskMat2 = mask2Mat[id2dMax2[0]-l:id2dMax2[0]+l+1, id2dMax2[1]-l:id2dMax2[1]+l+1]
-    mask = np.logical_and(maskMat1, maskMat2)
-    
-    fr = computeMatError(rgb1Mat[id2dMax1[0]-l:id2dMax1[0]+l+1, id2dMax1[1]-l:id2dMax1[1]+l+1, 0], rgb2Mat[id2dMax2[0]-l:id2dMax2[0]+l+1, id2dMax2[1]-l:id2dMax2[1]+l+1, 0], mask)
-    fg = computeMatError(rgb1Mat[id2dMax1[0]-l:id2dMax1[0]+l+1, id2dMax1[1]-l:id2dMax1[1]+l+1, 1], rgb2Mat[id2dMax2[0]-l:id2dMax2[0]+l+1, id2dMax2[1]-l:id2dMax2[1]+l+1, 1], mask)
-    fb = computeMatError(rgb1Mat[id2dMax1[0]-l:id2dMax1[0]+l+1, id2dMax1[1]-l:id2dMax1[1]+l+1, 2], rgb2Mat[id2dMax2[0]-l:id2dMax2[0]+l+1, id2dMax2[1]-l:id2dMax2[1]+l+1, 2], mask)
-    
-    f = fr + fg + fb
-    return f
-
+def rgbToGreyMat(rgbMat):
+    return 0.299*rgbMat[:,:,0] + 0.587*rgbMat[:,:,1] + 0.114*rgbMat[:,:,2]
