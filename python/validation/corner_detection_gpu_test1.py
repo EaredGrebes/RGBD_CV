@@ -6,7 +6,7 @@ import sys
 import open3d as o3d
 
  # custom functions
-sys.path.insert(1, 'functions')
+sys.path.insert(1, '../functions')
 import video_functions as vid
 #import feature_detection_functions as fd
 import feature_detection_functions as fd
@@ -14,7 +14,7 @@ import feature_detection_functions_gpu as fdgpu
 import cv_functions as cvFun
 
 loadData = True
-runCPU = False
+runCPU = True
  
 #------------------------------------------------------------------------------
 # data configuration and loading
@@ -22,7 +22,7 @@ runCPU = False
 if loadData:
     
      # calibration data
-    folder = '../data/'
+    folder = '../../data/'
     calName = folder + 'calibration.h5'
     numpyName = folder + 'rawData.npz'
     
@@ -126,15 +126,13 @@ gradyMat_cpu = gradyMat_gpu.get()
 crossProdMat_cpu = crossProdMat_gpu.get()
 coarseMaxMat_cpu = coarseMaxMat_gpu.get()
 
-vec = coarseMaxMat_cpu.flatten()
-vecArgSort = vec.argsort()
-
-#idxMax = vecArgSort[-nMax:]  # argsort puts the maximum value at the end
-#idx2dMax = np.array(np.unravel_index(idxMax, (height, width)))
 idx2dMax = idx2dMax_gpu.get()
+maxVals1 = np.sort(courseMaxVec_cpu)[-nMax:]
 
-maxVals1 = np.sort(vec)[-nMax:]
-maxVals2 = np.sort(courseMaxVec_cpu)[-nMax:]
+vec = coarseMaxMat.flatten()
+vecArgSort = vec.argsort()
+maxVals2 = np.sort(vec)[-nMax:]
+idx2dMax2 = np.array(np.unravel_index(vecArgSort[-nMax:], (height, width)))
 
 
 #------------------------------------------------------------------------------
@@ -162,6 +160,8 @@ if runCPU:
     check2 = np.isclose(gradyMat, gradyMat_cpu)
     check3 = np.isclose(crossProdMat, crossProdMat_cpu)
     check4 = np.isclose(coarseMaxMat, coarseMaxMat_cpu)
+    
+    print('check 4: {}'.format(check4.min()))
     
     plt.figure('check 1')
     plt.spy(check1)

@@ -163,7 +163,7 @@ def computeMatError(mat1, mat2, mask):
 #------------------------------------------------------------------------------
 def computeMatchCost(rgb1Mat, rgb2Mat, mask1Mat, mask2Mat, id2dMax1, id2dMax2):
     
-    l = 7
+    l = 5
     maskMat1 = mask1Mat[id2dMax1[0]-l:id2dMax1[0]+l+1, id2dMax1[1]-l:id2dMax1[1]+l+1]
     maskMat2 = mask2Mat[id2dMax2[0]-l:id2dMax2[0]+l+1, id2dMax2[1]-l:id2dMax2[1]+l+1]
     mask = np.logical_and(maskMat1, maskMat2)

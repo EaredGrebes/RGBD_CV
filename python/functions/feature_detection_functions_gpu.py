@@ -104,8 +104,7 @@ void findLocalMax(float* localMaxMat,  // outputs
     int jj = blockIdx.x * blockDim.x  + threadIdx.x;
     int ii = blockIdx.y * blockDim.y  + threadIdx.y;
   
-    
-    if( (ii >= c) && (ii < height-c) && (jj >= c) && (jj < width-c) ) {
+    if( (ii >= 2*c) && (ii < height-2*c) && (jj >= 2*c) && (jj < width-2*c) ) {
         
         float maxVal = 0;
         for (int iic = -c; iic <= c; iic++) {
@@ -172,15 +171,13 @@ class corner_detector_class:
         self.crossProdMat = cp.zeros((height, width), dtype = cp.float32)
         self.coarseMaxMat = cp.zeros((height, width), dtype = cp.float32)
 
-        # outputs
         self.courseMaxVec = cp.zeros(height_c * width_c, dtype = cp.float32)
         self.courseMaxVec_cpu = np.zeros(height_c * width_c, dtype = np.float32)
         self.pixelXVec = cp.zeros(height_c * width_c, dtype = cp.int32)
         self.pixelYVec = cp.zeros(height_c * width_c, dtype = cp.int32)
         
-        self.idx2dMax = cp.zeros((2,nMax), dtype = cp.int32)
         
-    def findCornerPoints(self, greyMat, maskMat):
+    def findCornerPoints(self, cornerPointIdx, greyMat, maskMat):
         
         # greyMat and maskMat must be cupy arrays
         findCornerPoints(self.gradxMat, \
@@ -202,10 +199,8 @@ class corner_detector_class:
         self.courseMaxVec_cpu = self.courseMaxVec.get()
         idxMaxSorted = self.courseMaxVec_cpu.argsort()[-self.nMax:]
 
-        self.idx2dMax[0,:] = self.pixelXVec[idxMaxSorted]
-        self.idx2dMax[1,:] = self.pixelYVec[idxMaxSorted]    
-            
-        return self.idx2dMax
+        cornerPointIdx[0,:] = self.pixelXVec[idxMaxSorted]
+        cornerPointIdx[1,:] = self.pixelYVec[idxMaxSorted]    
 
 
 #------------------------------------------------------------------------------
@@ -321,5 +316,5 @@ def findCornerPoints(gradxMat, \
                     
 
 #------------------------------------------------------------------------------
-def rgbToGreyMat(rgbMat):
-    return 0.299*rgbMat[:,:,0] + 0.587*rgbMat[:,:,1] + 0.114*rgbMat[:,:,2]
+def rgbToGreyMat(rMat, gMat, bMat):
+    return 0.299*rMat + 0.587*gMat + 0.114*bMat

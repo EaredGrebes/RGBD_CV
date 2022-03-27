@@ -5,7 +5,7 @@ import sys
 import open3d as o3d
 
  # custom functions
-sys.path.insert(1, 'functions')
+sys.path.insert(1, '../functions')
 import video_functions as vid
 import feature_detection_functions as fd
 import cv_functions as cvFun
@@ -18,7 +18,7 @@ loadData = True
 if loadData:
     
      # calibration data
-    folder = '../data/'
+    folder = '../../data/'
     calName = folder + 'calibration.h5'
     numpyName = folder + 'rawData.npz'
     
@@ -59,7 +59,7 @@ grey2Mat = cvFun.rgbToGreyMat(rgb2Mat).astype(int)
  
 #------------------------------------------------------------------------------
 # Testing
-nMax = 150
+nMax = 128
 cornerObj = fd.corner_detector_class()
 
 print('corner frame 1 detection')  

@@ -15,7 +15,7 @@ __constant__ float rgbPixelCoeffs[4] = {420.779, 244.096, 421.258, 420.961};
 // these are for correcting the rgb lens distortion, equation and coefficients taken from realsense api
 __constant__ float rgbLensCoeffs[5] = {-0.0554403, 0.0637236, -0.000739898, 0.000511257, -0.0202138};
 
-//                                        ppx      ppx      fx       fy
+//                                        ppx      ppy      fx       fy
 __constant__ float depthPixelCoeffs[4] = {423.337, 238.688, 421.225, 421.225};
 
 //  should be zero, see this:
@@ -242,6 +242,7 @@ __global__ void fillInColorKernel(  cv::cuda::PtrStepSz<int> clrBlurMatPtr_r, //
             int sumKernel_g = Conv5x5(tmp, clrMatPtr_g, gKm, iRow, iCol);
             int sumKernel_b = Conv5x5(tmp, clrMatPtr_b, gKm, iRow, iCol);
         
+            // if 
             if (sumMask > thresh) {
 
                 clrBlurMatPtr_r(iRow, iCol) = __float2int_rn(__int2float_rn(sumKernel_r) / __int2float_rn(sumWeight));

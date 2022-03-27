@@ -55,21 +55,19 @@ def loadDataSet(videoDat, vdid, calName, numpyName):
         zTens = np.zeros((height, width, nFrames),  dtype = np.single)
         maskTens = np.zeros((height, width, nFrames),  dtype = bool)
         
-        zLim_mm = -200
+        zLim_mm = 200
         for frame in range(nFrames):
             
             # x,y,z tensors
-            zMat = -(depth8LTens[:,:,frame].astype(np.single) * 255 + depth8UTens[:,:,frame].astype(np.single))
-            zTens[:,:,frame] =  zMat
-            xTens[:,:,frame] = -zMat * pixelXPosMat
-            yTens[:,:,frame] =  zMat * pixelYPosMat
+            zMat = (depth8LTens[:,:,frame].astype(np.single) * 255 + depth8UTens[:,:,frame].astype(np.single))
+            zTens[:,:,frame] = zMat
+            xTens[:,:,frame] = zMat * pixelXPosMat
+            yTens[:,:,frame] = zMat * pixelYPosMat
             
             # mask tensor
             maskMat = np.full((height, width), True, dtype=bool)
-            tmp = (redTens[:,:,frame] + greenTens[:,:,frame] + blueTens[:,:,frame]) < 10
-            tmp2 = zMat > zLim_mm 
-            tmp3 = np.logical_or(tmp, tmp2)
-            maskMat[tmp2] = False
+            tmp3 = np.logical_or((redTens[:,:,frame] + greenTens[:,:,frame] + blueTens[:,:,frame]) < 15, zMat < zLim_mm )
+            maskMat[tmp3] = False
             maskTens[:,:,frame] = maskMat
         
         # save data as numpy file for quicker loading
