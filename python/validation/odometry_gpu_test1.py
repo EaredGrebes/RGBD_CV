@@ -76,6 +76,7 @@ nMatchedPoints = rgbdObj.cornerMatchedIdx_c.shape[1]
 
 xyzVecMat_prevPoints = cp.zeros((nMatchedPoints, 3), dtype = cp.float32)
 pixelIdVec = cp.zeros((nMatchedPoints, 2), dtype = cp.int32)
+zErrorVec = cp.zeros((nMatchedPoints), dtype = cp.float32)
 
 fmgpu.generateXYZVecMat(xyzVecMat_prevPoints, \
                         rgbdObj.sensorData_p['xMat'], \
@@ -88,13 +89,20 @@ fmgpu.generateXYZVecMat(xyzVecMat_prevPoints, \
             
 imgtObj = imgt.image_transform_class()
 
-R = cp.array(rgbdObj.R_fTobc, dtype = cp.float32)
+R = cp.array(rgbdObj.R_fTobc.flatten(), dtype = cp.float32)
 t = cp.array(rgbdObj.t_fTobc_inf, dtype = cp.float32)
+
+
 
 #R = cp.eye(3, dtype = cp.float32)
 #t = cp.zeros((3), dtype = cp.float32)
 
-imgtObj.transformXYZVecMat(pixelIdVec, xyzVecMat_prevPoints, R, t)        
+imgtObj.transformXYZVecMat(pixelIdVec, \
+                           zErrorVec, \
+                           xyzVecMat_prevPoints, \
+                           rgbdObj.sensorData_c['zMat'],\
+                           R,\
+                           t)        
   
     
 cornerMatchedIdx1 = rgbdObj.cornerMatchedIdx_p.get()
