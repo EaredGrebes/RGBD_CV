@@ -7,7 +7,6 @@ import copy
 import time
 
 
-
 #------------------------------------------------------------------------------
   
 class RGBD_odometry_gpu_class:
@@ -19,12 +18,13 @@ class RGBD_odometry_gpu_class:
         self.cornerScale = 8
         self.matchScale = 15
         self.matchOffset = np.int32(self.matchScale/2)
-        l = 5
-        self.xyzScale = 2*l+1  # side length of box that goes around point of interest x,y,z
+        l = 7
+        self.xyzScale = 2*l+1  # side length of pixel box that goes around a feature point to generate multiple points of interest
         self.xyzOffset = l
-        self.transformPercent = 0.3
+        self.transformPercent = 0.3  # top percentage of 3d points used in ICP transform
         
         height, width = maskMat_init.shape
+        self.nPoi = self.nFeatures * self.xyzScale * self.xyzScale # number of 3d points of interest
         
         # ~~ objects  ~~
         # corner detector object 
@@ -34,30 +34,34 @@ class RGBD_odometry_gpu_class:
         self.matchObjGpu = fmgpu.feature_matching_class(height, width, self.nFeatures, self.matchScale)
         
         # transform object
-        self.transformObjGpu = tmgpu.image_transform_class()
+        self.transformObjGpu = tmgpu.image_transform_class(height, width, self.nPoi)
         
         # initial sensor data
         self.sensorData_p = generateGpuSensorDataDict(xyzMat_init, rgbMat_init, maskMat_init)
         self.sensorData_c = generateGpuSensorDataDict(xyzMat_init, rgbMat_init, maskMat_init)
         
         # ~~ working variables  ~~
-        # only pixel data around point of interest
+        # a dictionary of matrcies that only store points of interest
         self.poiMats_p = generatePoiMats(self.nFeatures, self.matchScale, height, width)
         self.poiMats_c = generatePoiMats(self.nFeatures, self.matchScale, height, width)
         
-        self.processNewSensorData(self.sensorData_c, self.poiMats_c)
-        
-        # initialize later after matchNewFrame is called
-        self.cornerMatchedIdx_p = None
+        self.cornerMatchedIdx_p = None # variable size
         self.cornerMatchedIdx_c = None
-        self.pixelIdTransformedVec = cp.zeros((self.nFeatures * self.xyzScale * self.xyzScale, 3), dtype = cp.float32)
+
+        self.pixelIdTransformedVec = cp.zeros((self.nPoi, 3), dtype = cp.float32)
         
-        self.xyzVecMat_p = cp.zeros((self.nFeatures * self.xyzScale * self.xyzScale, 3), dtype = cp.float32)
-        self.xyzVecMat_c = cp.zeros((self.nFeatures * self.xyzScale * self.xyzScale, 3), dtype = cp.float32)
-        self.xyzVecMat_c_matched = cp.zeros((self.nFeatures * self.xyzScale * self.xyzScale, 3), dtype = cp.float32)
+        self.xyzVecMat_p = cp.zeros((self.nPoi, 3), dtype = cp.float32)
+        self.xyzVecMat_c = cp.zeros((self.nPoi, 3), dtype = cp.float32)
+        self.xyzVecMat_c_matched = cp.zeros((self.nPoi, 3), dtype = cp.float32)
         
+        self.R_bpTobc = np.eye(3)
+        self.t_bpTobc_inbc = np.zeros((3))
         self.R_fTobc = np.eye(3)
         self.t_fTobc_inf = np.zeros((3))
+        
+        # process the initial data
+        self.processNewSensorData(self.sensorData_c, self.poiMats_c)
+        
         
     #--------------------------------------------------------------------------
     def processNewSensorData(self, sensorData, poiMats):
@@ -125,13 +129,13 @@ class RGBD_odometry_gpu_class:
                                 self.xyzScale,
                                 self.xyzOffset)    
 
-        # use matches XYZ matricies to compute rigid transform between frames
+        # use matched XYZ matricies to compute rigid transform between frames
         Nmatches = self.cornerMatchedIdx_p.shape[1]
         # print('Nmatches: {}'.format(Nmatches))
         
-        
         xyzPoints_p = self.xyzVecMat_p[:Nmatches*self.xyzScale*self.xyzScale,:].get()
         xyzPoints_c = self.xyzVecMat_c[:Nmatches*self.xyzScale*self.xyzScale,:].get()
+        
         
         pointMask = (abs(xyzPoints_p[:,2]) > 0) & (abs(xyzPoints_c[:,2]) > 0)
 
@@ -143,13 +147,13 @@ class RGBD_odometry_gpu_class:
 
         nSmallestPoints = int(Npoints * self.transformPercent)
         idxSmallestDist = np.argsort(distErr)[:nSmallestPoints]
-        R_bpTobc, t_bpTobc_inbc, distErr2, xyzPoints_pinc = solveTransform(xyzPoints_p[idxSmallestDist,:], xyzPoints_c[idxSmallestDist,:], nSmallestPoints)
+        self.R_bpTobc, self.t_bpTobc_inbc, distErr2, xyzPoints_pinc = solveTransform(xyzPoints_p[idxSmallestDist,:], xyzPoints_c[idxSmallestDist,:], nSmallestPoints)
+        
+        # update camera DCM and translation (cpu)
+        self.R_fTobc = self.R_bpTobc @ self.R_fTobc
+        self.t_fTobc_inf = self.t_fTobc_inf + self.R_fTobc.T @ self.t_bpTobc_inbc
         
         
-        
-        # CPU: update camera DCM and translation 
-        self.R_fTobc = R_bpTobc @ self.R_fTobc
-        self.t_fTobc_inf = self.t_fTobc_inf + self.R_fTobc.T @ t_bpTobc_inbc
         
         return xyzPoints_p[idxSmallestDist,:], xyzPoints_c[idxSmallestDist,:], xyzPoints_pinc
         
