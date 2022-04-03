@@ -143,9 +143,11 @@ void poiMatrix(float* poiMat1,  // outputs
 cp_xyzMatrix = cp.RawKernel(r'''
 extern "C" __global__
 void xyzMatrix(float* xyzVecMat,  // outputs
+               float* greyVec,
                float* xMat,       // inputs
                float* yMat,
                float* zMat, 
+               float* greyMat,
                bool*  maskMat,
                int* imgPixelId_xVec, 
                int* imgPixelId_yVec,   
@@ -183,6 +185,8 @@ void xyzMatrix(float* xyzVecMat,  // outputs
                 xyzVecMat[iRow*xyzWidth + 0] = xMat[img_x*imgWidth + img_y];
                 xyzVecMat[iRow*xyzWidth + 1] = yMat[img_x*imgWidth + img_y];
                 xyzVecMat[iRow*xyzWidth + 2] = zMat[img_x*imgWidth + img_y];
+                
+                greyVec[iRow] = greyMat[img_x*imgWidth + img_y];
             }
         }
     }
@@ -340,9 +344,11 @@ def generatePointsOfInterestMat(poiMat1, \
 # creates a tall rectangular matrix of vertically stacked [x,y,z] vector rows
 # each vector is taken from a box around a set of feature point coordinate from a 2d image
 def generateXYZVecMat(xyzVecMat, \
+                      greyVec,   \
                       xMat, \
                       yMat, \
                       zMat, \
+                      greyMat, \
                       maskMat, \
                       imgPixelIdx, \
                       scale,
@@ -362,9 +368,11 @@ def generateXYZVecMat(xyzVecMat, \
     # Call kernel
     cp_xyzMatrix(grid, block,  \
                (xyzVecMat, 
+                greyVec,
                 xMat, 
                 yMat,
                 zMat,
+                greyMat,
                 maskMat,
                 imgPixelIdx[0,:], 
                 imgPixelIdx[1,:], 

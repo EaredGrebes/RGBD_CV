@@ -17,14 +17,11 @@ import RGBD_odometry_gpu as rgbd
 import image_transform_functions_gpu as imgt
 import cv_functions as cvFun
 
-loadData = True
-runCPU = False
-
 plt.close('all')
  
 #------------------------------------------------------------------------------
 # data configuration and loading
-
+loadData = True
 if loadData:
     
      # calibration data
@@ -56,7 +53,7 @@ print('number of frames: ', nFrms)
 myCv = cvFun.myCv(height, width) 
 
 # get frame 1 mats
-frame1 = 160
+frame1 = 93
 rgbMat1, xyzMat1, maskMat1 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
 
 height, width = maskMat1.shape
@@ -69,201 +66,162 @@ rgbdObj = rgbd.RGBD_odometry_gpu_class(rgbMat1, xyzMat1, maskMat1)
 
 imgTransformObj = imgt.image_transform_class(height, width, rgbdObj.nPoi)
 
-# add a new frame
-frame2 = frame1 + 1
-rgbMat2, xyzMat2, maskMat2 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame2)
+# add new frames
+drVec = np.zeros((nFrms, 3))
 
+for frame in range(1, nFrms):
 
-xyzPoints_p, xyzPoints_c, xyzPoints_pinc = rgbdObj.matchNewFrame(rgbMat2, xyzMat2, maskMat2)
-
-
-start = time.time()
-#------------------------------------------------------------------------------
-# prototyping
-R_fTobc = rgbdObj.R_fTobc
-t_fTobc_inf = rgbdObj.t_fTobc_inf
-
-nOpt = 20
-deltaVec = np.zeros((nOpt, 6))
-normVec = np.zeros(nOpt)
-deltaSum = np.zeros(6)
-print(np.linalg.norm(t_fTobc_inf))
-for ii in range(nOpt):
-    imgTransformObj.computeTransformJacobian(rgbdObj.xyzVecMat_p,         \
-                                             rgbdObj.sensorData_c['zMat'], \
-                                             R_fTobc,    \
-                                             t_fTobc_inf)
-        
-    jacobianMat = imgTransformObj.jacobianMat.get()
-    zErrorPerturbMat = imgTransformObj.zErrorPerturbMat.get()
-    zErrorVec = imgTransformObj.zErrorVec.get()
+    rgbMat2, xyzMat2, maskMat2 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame)
     
-    A = jacobianMat.T @ jacobianMat + 0.3 * np.eye(6)
+    optDeltaVec, optNormVec, optCostVec, xyzPoints_p, xyzPoints_c, xyzPoints_pinc = rgbdObj.matchNewFrame(rgbMat2, xyzMat2, maskMat2)
     
-    delta = -0.8 * np.linalg.solve(A, jacobianMat.T @ zErrorVec)
-
-    DcmDelta = imgt.eulerAngToDcm(delta[3:])
+    R_bpTobc = rgbdObj.R_bpTobc
+    t_bpTobc_inbc = rgbdObj.t_bpTobc_inbc
     
-    R_fTobc = DcmDelta @ R_fTobc
-    t_fTobc_inf = t_fTobc_inf + delta[:3]
-    deltaSum += delta
-    
-    #print(np.linalg.norm(delta))
-    deltaVec[ii, :] = deltaSum
-    normVec[ii] = np.sum(np.power(zErrorVec,2))
+    drVec[frame,:] = t_bpTobc_inbc
+    print(t_bpTobc_inbc)
 
-print(np.linalg.norm(t_fTobc_inf))
-print('timer:', time.time() - start)   
 
+# some plotting
+plt.figure()
+plt.plot(drVec)
 
 plt.figure()
-plt.plot(deltaVec)
+plt.plot(optDeltaVec)
 # update state
 
 plt.figure()
-plt.plot(normVec)
+plt.plot(optNormVec)
 
 plt.figure()
-plt.hist(zErrorVec[zErrorVec != 0], bins = 200)
-
-# # construct matrix of perturbed rotation and translations (rotation matrix flattened into 1x9 array)
-# deltaAng = 0.0
-# deltaPos = 0.0
-# transPerturb_cpu, rotPerturb_cpu = imgt.createPerurbedTransforms(deltaAng, deltaPos, rgbdObj.R_fTobc, rgbdObj.t_fTobc_inf)
-
-# transPerturb = cp.array(transPerturb_cpu, dtype = cp.float32)
-# rotPerturb = cp.array(rotPerturb_cpu, dtype = cp.float32)
-
-# nTransforms = transPerturb.shape[0]
-# zErrorMat = cp.zeros((rgbdObj.xyzVecMat_p.shape[0], nTransforms), dtype = cp.float32)
-
-# imgTransformObj.multiTransformXYZVecMat(zErrorMat,   \
-#                                         rgbdObj.xyzVecMat_p, \
-#                                         rgbdObj.sensorData_c['zMat'],\
-#                                         rotPerturb,\
-#                                         transPerturb)       
-    
-# zErrorMat_cpu = zErrorMat.get() 
+plt.hist(optCostVec[optCostVec != 0], bins = 200)
 
 #------------------------------------------------------------------------------
 # verification
-xyzScale = 1
-xyzOffset = 0
-#nMatchedPoints = rgbdObj.cornerMatchedIdx_c.shape[1]
-nMatchedPoints = rgbdObj.nPoi
 
-xyzMatched_prevPoints = cp.zeros((nMatchedPoints, 3), dtype = cp.float32)
-pixelIdVec = cp.zeros((nMatchedPoints, 2), dtype = cp.int32)
-zErrorVec = cp.zeros((nMatchedPoints), dtype = cp.float32)
-
-# fmgpu.generateXYZVecMat(xyzMatched_prevPoints, \
-#                         rgbdObj.sensorData_p['xMat'], \
-#                         rgbdObj.sensorData_p['yMat'], \
-#                         rgbdObj.sensorData_p['zMat'], \
-#                         rgbdObj.sensorData_p['maskMat'], \
-#                         rgbdObj.cornerMatchedIdx_p, \
-#                         xyzScale,
-#                         xyzOffset)
-
-# imgTransformObj.transformXYZVecMat(pixelIdVec, \
-#                            zErrorVec,  \
-#                            xyzMatched_prevPoints,        \
-#                            rgbdObj.sensorData_c['zMat'],\
-#                            Dcm,\
-#                            translationVec)     
-  
 #Dcm = cp.array(rgbdObj.R_bpTobc, dtype = cp.float32)
 #translation = cp.array(rgbdObj.t_bpTobc_inbc, dtype = cp.float32)
 
-Dcm = cp.array(R_fTobc, dtype = cp.float32)
-translation = cp.array(t_fTobc_inf, dtype = cp.float32)
+Dcm = cp.array(R_bpTobc, dtype = cp.float32)
+translationVec = cp.array(t_bpTobc_inbc, dtype = cp.float32)
 
-xyzVecMatTransformed = cp.zeros(rgbdObj.xyzVecMat_p.shape, dtype = cp.float32)
+# find the feature points in the current frame, using the optimized transform,
+# and the point in the previous frame
+nMatchedPoints = rgbdObj.cornerMatchedIdx_c.shape[1]
+feature_xyzVecMat_p = cp.zeros((nMatchedPoints, 3), dtype = cp.float32)
+feature_greyVec_p = cp.zeros((nMatchedPoints), dtype = cp.float32)
 
-imgTransformObj.transformXYZVecMat(xyzVecMatTransformed, \
-                                   pixelIdVec, \
-                                   zErrorVec,  \
-                                   rgbdObj.xyzVecMat_p,         \
+xyzScale = 1
+xyzOffset = 0
+
+fmgpu.generateXYZVecMat(feature_xyzVecMat_p, \
+                        feature_greyVec_p, \
+                        rgbdObj.sensorData_p['xMat'], \
+                        rgbdObj.sensorData_p['yMat'], \
+                        rgbdObj.sensorData_p['zMat'], \
+                        rgbdObj.sensorData_p['greyMat'], \
+                        rgbdObj.sensorData_p['maskMat'], \
+                        rgbdObj.cornerMatchedIdx_p, \
+                        xyzScale,
+                        xyzOffset)
+    
+feature_xyzVecMat_c = cp.zeros((nMatchedPoints, 3), dtype = cp.float32)
+feature_pixelIdVec = cp.zeros((nMatchedPoints, 2), dtype = cp.int32)
+feature_zErrorVec = cp.zeros((nMatchedPoints), dtype = cp.float32)    
+
+imgTransformObj.transformXYZVecMat(feature_xyzVecMat_c, \
+                                   feature_pixelIdVec,  \
+                                   feature_zErrorVec,   \
+                                   feature_xyzVecMat_p, \
                                    rgbdObj.sensorData_c['zMat'],\
                                    Dcm,\
-                                   translation)        
+                                   translationVec)     
+    
+cornerMatchedIdx_p = rgbdObj.cornerMatchedIdx_p.get()  
+cornerMatchedIdx_c = rgbdObj.cornerMatchedIdx_c.get()
+cornerMatchedIdx_c_opt = feature_pixelIdVec.T.get()    
+
+# tranform all the POIs 
+poi_xyzVecMat_c = cp.zeros((rgbdObj.nPoi, 3), dtype = cp.float32)
+poi_pixelIdVec = cp.zeros((rgbdObj.nPoi, 2), dtype = cp.int32)
+poi_zErrorVec = cp.zeros((rgbdObj.nPoi), dtype = cp.float32)
+
+imgTransformObj.transformXYZVecMat(poi_xyzVecMat_c, \
+                                   poi_pixelIdVec,  \
+                                   poi_zErrorVec,   \
+                                   rgbdObj.xyzVecMat_p,       \
+                                   rgbdObj.sensorData_c['zMat'],\
+                                   Dcm,\
+                                   translationVec)        
  
-xyzVecMatTransformed_cpu = xyzVecMatTransformed.get()    
-zErrorVec_cpu = zErrorVec.get()
+poi_xyzVecMatTransformed = poi_xyzVecMat_c.get()    
+poi_zErrorVec_cpu = poi_zErrorVec.get()
+poiMatchedIdx_c_opt = poi_pixelIdVec.T.get()
+
+xyzVecMat3 = np.zeros(poi_xyzVecMatTransformed.shape)
+
+for ii in range(poi_xyzVecMatTransformed.shape[0]):
     
-cornerMatchedIdx1 = rgbdObj.cornerMatchedIdx_p.get()
-cornerMatchedIdx2 = rgbdObj.cornerMatchedIdx_c.get()
-cornerMatchedIdx3 = pixelIdVec.T.get()
+    xyzVecMat3[ii, 0] = xyzMat2[poiMatchedIdx_c_opt[0,ii], poiMatchedIdx_c_opt[1,ii], 0]
+    xyzVecMat3[ii, 1] = xyzMat2[poiMatchedIdx_c_opt[0,ii], poiMatchedIdx_c_opt[1,ii], 1]
+    xyzVecMat3[ii, 2] = xyzMat2[poiMatchedIdx_c_opt[0,ii], poiMatchedIdx_c_opt[1,ii], 2]
 
-zMat = rgbdObj.sensorData_c['zMat'].get()
-xyzVecMat3 = np.zeros(xyzVecMatTransformed_cpu.shape)
+# full depth image transform
+xMat_frame1_transformed = cp.zeros((height, width), dtype = cp.float32)
+yMat_frame1_transformed = cp.zeros((height, width), dtype = cp.float32)
+zMat_frame1_transformed = cp.zeros((height, width), dtype = cp.float32)
 
-for ii in range(xyzVecMatTransformed_cpu.shape[0]):
-    
-    xyzVecMat3[ii, 0] = xyzMat2[cornerMatchedIdx3[0,ii], cornerMatchedIdx3[1,ii], 0]
-    xyzVecMat3[ii, 1] = xyzMat2[cornerMatchedIdx3[0,ii], cornerMatchedIdx3[1,ii], 1]
-    xyzVecMat3[ii, 2] = xyzMat2[cornerMatchedIdx3[0,ii], cornerMatchedIdx3[1,ii], 2]
-  
-zVec1 = rgbdObj.xyzVecMat_p.get()[:,2]    
-zVec2 = xyzVecMat3[:,2]
+zMax = 100000
+zMat_frame1_inFrame2 = zMax * cp.ones((height, width), dtype = cp.int32) # has to be int32 for atomic min function in cuda
 
-zErrTest = zVec2 - zVec1
+imgTransformObj.transformDepthImage(xMat_frame1_transformed, \
+                                    yMat_frame1_transformed, \
+                                    zMat_frame1_transformed, \
+                                    zMat_frame1_inFrame2,    \
+                                    rgbdObj.sensorData_p['xMat'], \
+                                    rgbdObj.sensorData_p['yMat'], \
+                                    rgbdObj.sensorData_p['zMat'], \
+                                    rgbdObj.sensorData_p['maskMat'], \
+                                    Dcm, \
+                                    translationVec)
+
+zMat_frame1_inFrame2[zMat_frame1_inFrame2 >= zMax] = 0
+test = zMat_frame1_inFrame2.get()
+
+xyzMat_1in2 = np.stack((xMat_frame1_transformed.get(), yMat_frame1_transformed.get(), zMat_frame1_transformed.get()), axis = 2)
 
 
 #------------------------------------------------------------------------------
 # plotting
 
-plt3d = True
+plt3d = False
 if plt3d:
-    nP = xyzPoints_p.shape[0]
-    rgbPoints1 = np.zeros((nP, 3))
-    rgbPoints2 = np.zeros((nP, 3))
-    rgbPoints3 = np.zeros((nP, 3))
-    rgbPoints4 = np.zeros(xyzVecMatTransformed_cpu.shape)
-    rgbPoints5 = np.zeros(xyzVecMat3.shape)
     
-    rgbPoints1[:,0] = 1
-    rgbPoints1[:,1] = 0
-    rgbPoints1[:,2] = 0
+    def make3dset(xyzPoints, color):
+        rgbPoints = np.tile(color, (xyzPoints.shape[0], 1))
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(xyzPoints)
+        pcd.colors = o3d.utility.Vector3dVector(rgbPoints)  # open3d expects color between [0, 1]
+        return pcd
+      
     
-    rgbPoints2[:,0] = 0
-    rgbPoints2[:,1] = 1
-    rgbPoints2[:,2] = 0
+    pcd1 = make3dset(xyzPoints_p, np.array([1, 0, 0]))
+    pcd2 = make3dset(xyzPoints_c, np.array([0, 1, 1]))
+    pcd3 = make3dset(xyzPoints_pinc, np.array([1, 1, 0]))
+    pcd4 = make3dset(poi_xyzVecMatTransformed, np.array([0, 1, 0]))
+    pcd5 = make3dset(xyzVecMat3, np.array([1, 0, 1]))
     
-    rgbPoints3[:,0] = 0
-    rgbPoints3[:,1] = 0
-    rgbPoints3[:,2] = 1
+    xyzVecMat2_full = vid.flattenCombine(xyzMat2)
+    xyzVecMat_1in2_full = vid.flattenCombine(xyzMat_1in2)
     
-    rgbPoints4[:,0] = 1
-    rgbPoints4[:,1] = 0
-    rgbPoints4[:,2] = 1
+    zLim = 5*1000
+    xyzVecMat2_full[xyzVecMat2_full[:,2] > zLim] = 0
+    xyzVecMat_1in2_full[xyzVecMat_1in2_full[:,2] > zLim] = 0
     
-    rgbPoints5[:,0] = 0.3
-    rgbPoints5[:,1] = 0
-    rgbPoints5[:,2] = 1
+    pcd6 = make3dset(xyzVecMat2_full, np.array([0, 0.6, 0]))
+    pcd7 = make3dset(xyzVecMat_1in2_full, np.array([0.6, 0, 0.6]))  
     
-    # open3d
-    pcd1 = o3d.geometry.PointCloud()
-    pcd1.points = o3d.utility.Vector3dVector(xyzPoints_p)
-    pcd1.colors = o3d.utility.Vector3dVector(rgbPoints1)  # open3d expects color between [0, 1]
-    
-    pcd2 = o3d.geometry.PointCloud()
-    pcd2.points = o3d.utility.Vector3dVector(xyzPoints_c)
-    pcd2.colors = o3d.utility.Vector3dVector(rgbPoints2) 
-    
-    pcd3 = o3d.geometry.PointCloud()
-    pcd3.points = o3d.utility.Vector3dVector(xyzPoints_pinc)
-    pcd3.colors = o3d.utility.Vector3dVector(rgbPoints3) 
-    
-    pcd4 = o3d.geometry.PointCloud()
-    pcd4.points = o3d.utility.Vector3dVector(xyzVecMatTransformed_cpu)
-    pcd4.colors = o3d.utility.Vector3dVector(rgbPoints4) 
-    
-    pcd5 = o3d.geometry.PointCloud()
-    pcd5.points = o3d.utility.Vector3dVector(xyzVecMat3)
-    pcd5.colors = o3d.utility.Vector3dVector(rgbPoints5) 
-    
-    o3d.visualization.draw_geometries([pcd4, pcd5])
+    o3d.visualization.draw_geometries([pcd6, pcd7])
 
 # plotting matches
 
@@ -271,11 +229,11 @@ if plt3d:
 rgb1Match = np.copy(rgbMat1)
 rgb2Match = np.copy(rgbMat2)
 
-for ii in range(cornerMatchedIdx1.shape[1]):
+for ii in range(cornerMatchedIdx_p.shape[1]):
     
     color = 255 * np.random.rand(3)
-    fd.drawBox(rgb1Match, cornerMatchedIdx1[0, ii], cornerMatchedIdx1[1, ii], 8, color.astype(np.ubyte))
-    fd.drawBox(rgb2Match, cornerMatchedIdx2[0, ii], cornerMatchedIdx2[1, ii], 8, color.astype(np.ubyte))
+    fd.drawBox(rgb1Match, cornerMatchedIdx_p[0, ii], cornerMatchedIdx_p[1, ii], 8, color.astype(np.ubyte))
+    fd.drawBox(rgb2Match, cornerMatchedIdx_c_opt[0, ii], cornerMatchedIdx_c_opt[1, ii], 8, color.astype(np.ubyte))
     
 plt.figure('rgb  frame 1 interest points')
 plt.title('rgb  frame 1 interest points')

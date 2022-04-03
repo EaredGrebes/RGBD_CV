@@ -3,6 +3,7 @@ import cupy as cp
 import feature_detection_functions_gpu as fdgpu
 import feature_matching_functions_gpu as fmgpu
 import image_transform_functions_gpu as tmgpu
+import image_transform_functions_gpu as imgt
 import copy
 import time
 
@@ -16,12 +17,14 @@ class RGBD_odometry_gpu_class:
         # ~~ parameters  ~~
         self.nFeatures = 128
         self.cornerScale = 8
-        self.matchScale = 15
+        self.matchScale = 13
         self.matchOffset = np.int32(self.matchScale/2)
         l = 7
         self.xyzScale = 2*l+1  # side length of pixel box that goes around a feature point to generate multiple points of interest
         self.xyzOffset = l
-        self.transformPercent = 0.3  # top percentage of 3d points used in ICP transform
+        self.transformPercent = 0.6  # top percentage of 3d points used in ICP transform
+        
+        self.zMin_mm = 200
         
         height, width = maskMat_init.shape
         self.nPoi = self.nFeatures * self.xyzScale * self.xyzScale # number of 3d points of interest
@@ -51,7 +54,9 @@ class RGBD_odometry_gpu_class:
         self.pixelIdTransformedVec = cp.zeros((self.nPoi, 3), dtype = cp.float32)
         
         self.xyzVecMat_p = cp.zeros((self.nPoi, 3), dtype = cp.float32)
+        self.greyVec_p = cp.zeros((self.nPoi), dtype = cp.float32)
         self.xyzVecMat_c = cp.zeros((self.nPoi, 3), dtype = cp.float32)
+        self.greyVec_c = cp.zeros((self.nPoi), dtype = cp.float32)
         self.xyzVecMat_c_matched = cp.zeros((self.nPoi, 3), dtype = cp.float32)
         
         self.R_bpTobc = np.eye(3)
@@ -112,18 +117,22 @@ class RGBD_odometry_gpu_class:
             
         # construct the matched XYZ matricies from the current and previous data
         fmgpu.generateXYZVecMat(self.xyzVecMat_p, \
+                                self.greyVec_p ,  \
                                 self.sensorData_p['xMat'], \
                                 self.sensorData_p['yMat'], \
                                 self.sensorData_p['zMat'], \
+                                self.sensorData_p['greyMat'], \
                                 self.sensorData_p['maskMat'], \
                                 self.cornerMatchedIdx_p, \
                                 self.xyzScale,
                                 self.xyzOffset)  
         
         fmgpu.generateXYZVecMat(self.xyzVecMat_c, \
+                                self.greyVec_c,   \
                                 self.sensorData_c['xMat'], \
                                 self.sensorData_c['yMat'], \
                                 self.sensorData_c['zMat'], \
+                                self.sensorData_p['greyMat'], \
                                 self.sensorData_c['maskMat'], \
                                 self.cornerMatchedIdx_c, \
                                 self.xyzScale,
@@ -135,29 +144,79 @@ class RGBD_odometry_gpu_class:
         
         xyzPoints_p = self.xyzVecMat_p[:Nmatches*self.xyzScale*self.xyzScale,:].get()
         xyzPoints_c = self.xyzVecMat_c[:Nmatches*self.xyzScale*self.xyzScale,:].get()
-        
-        
-        pointMask = (abs(xyzPoints_p[:,2]) > 0) & (abs(xyzPoints_c[:,2]) > 0)
+
+        pointMask = (abs(xyzPoints_p[:,2]) > self.zMin_mm) & (abs(xyzPoints_c[:,2]) > self.zMin_mm)
 
         xyzPoints_p = xyzPoints_p[pointMask,:]
         xyzPoints_c = xyzPoints_c[pointMask,:]
         Npoints = xyzPoints_c.shape[0]
         
+        # solve transform using all valid points
         _, _, distErr, _ = solveTransform(xyzPoints_p, xyzPoints_c, Npoints)
 
         nSmallestPoints = int(Npoints * self.transformPercent)
         idxSmallestDist = np.argsort(distErr)[:nSmallestPoints]
-        self.R_bpTobc, self.t_bpTobc_inbc, distErr2, xyzPoints_pinc = solveTransform(xyzPoints_p[idxSmallestDist,:], xyzPoints_c[idxSmallestDist,:], nSmallestPoints)
+        
+        # solve transform using the points with the smallest error (throwing out outliers), cheap RANSAC
+        R_bpTobc, t_bpTobc_inbc, distErr2, xyzPoints_pinc = solveTransform(xyzPoints_p[idxSmallestDist,:], xyzPoints_c[idxSmallestDist,:], nSmallestPoints)
+        
+        # adjust the transform by solving a global optimization problem
+        R_bpTobc, t_bpTobc_inbc, optDeltaVec, optNormVec, optCostVec = self.solveOptimalTransform(R_bpTobc, t_bpTobc_inbc)
+        
+        self.R_bpTobc = R_bpTobc
+        self.t_bpTobc_inbc = t_bpTobc_inbc
         
         # update camera DCM and translation (cpu)
         self.R_fTobc = self.R_bpTobc @ self.R_fTobc
         self.t_fTobc_inf = self.t_fTobc_inf + self.R_fTobc.T @ self.t_bpTobc_inbc
-        
-        
-        
-        return xyzPoints_p[idxSmallestDist,:], xyzPoints_c[idxSmallestDist,:], xyzPoints_pinc
+
+        return optDeltaVec, optNormVec, optCostVec, xyzPoints_p[idxSmallestDist,:], xyzPoints_c[idxSmallestDist,:], xyzPoints_pinc
         
 
+
+    def solveOptimalTransform(self, R_fTobc, t_fTobc_inf):
+        
+        Dcm = np.copy(R_fTobc)
+        translation = np.copy(t_fTobc_inf)
+
+        nOpt = 60
+        deltaVec = np.zeros((nOpt, 6))
+        normVec = np.zeros(nOpt)
+        deltaSum = np.zeros(6)
+        
+        for ii in range(nOpt):
+            jacobianMat_gpu, costVec_gpu = self.transformObjGpu.computeTransformJacobian(self.xyzVecMat_p,         \
+                                                                                         self.greyVec_p,            \
+                                                                                         self.sensorData_c['zMat'], \
+                                                                                         self.sensorData_c['greyMat'], \
+                                                                                         Dcm,    \
+                                                                                         translation)
+            
+            
+            jacobianMat = jacobianMat_gpu.get()
+            costVec = costVec_gpu.get()
+            
+            A = jacobianMat.T @ jacobianMat 
+            
+            delta = -0.95 * np.linalg.solve(A, jacobianMat.T @ costVec)
+
+            DcmDelta = imgt.eulerAngToDcm(delta[3:])
+            Dcm = DcmDelta @ Dcm
+            
+            translation = translation + delta[:3]
+            deltaSum += delta
+            #DcmDelta = imgt.eulerAngToDcm(deltaSum[3:])
+            #R_fTobc = DcmDelta @ rgbdObj.R_fTobc
+            
+            #print(np.linalg.norm(delta))
+            deltaVec[ii, :] = deltaSum
+            normVec[ii] = np.sum(np.power(costVec,2))
+            
+        return Dcm, translation, deltaVec, normVec, costVec
+            
+        
+            
+            
 #------------------------------------------------------------------------------
 # helper functions
 

@@ -1,6 +1,5 @@
 import numpy as np
 import cv2
-import video_functions as vid
 import multiprocessing as mp
 import open3d as o3d
 from os.path import exists
@@ -39,7 +38,7 @@ def loadDataSet(videoDat, vdid, calName, numpyName):
         height, width = pixelXPosMat.shape
         
         # load video list
-        vidTensorList = vid.loadVideos(videoDat, width, height)
+        vidTensorList = loadVideos(videoDat, width, height)
         
         # seperate out the different channels / videos
         redTens   = vidTensorList[vdid['red']]
@@ -55,7 +54,8 @@ def loadDataSet(videoDat, vdid, calName, numpyName):
         zTens = np.zeros((height, width, nFrames),  dtype = np.single)
         maskTens = np.zeros((height, width, nFrames),  dtype = bool)
         
-        zLim_mm = 200
+        zMin_mm = 200
+        zMax_mm = 30 * 1000
         for frame in range(nFrames):
             
             # x,y,z tensors
@@ -66,7 +66,7 @@ def loadDataSet(videoDat, vdid, calName, numpyName):
             
             # mask tensor
             maskMat = np.full((height, width), True, dtype=bool)
-            tmp3 = np.logical_or((redTens[:,:,frame] + greenTens[:,:,frame] + blueTens[:,:,frame]) < 15, zMat < zLim_mm )
+            tmp3 = np.logical_or((redTens[:,:,frame] + greenTens[:,:,frame] + blueTens[:,:,frame]) < 15, zMat < zMin_mm, zMat > zMax_mm )
             maskMat[tmp3] = False
             maskTens[:,:,frame] = maskMat
         
@@ -92,8 +92,9 @@ def loadVideos(videos, width, height):
         inputList.append([vd['filename'], vd['channel'], width, height])    
 
     pool = mp.Pool(processes = len(videos))
-    vidTensorList = pool.map(vid.genVideoTensor, inputList)
-    pool.close()  
+    vidTensorList = pool.map(genVideoTensor, inputList)
+    
+    pool.terminate()     
     pool.join() 
     
     return vidTensorList
