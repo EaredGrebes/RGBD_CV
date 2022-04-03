@@ -96,6 +96,7 @@ def loadVideos(videos, width, height):
     
     pool.terminate()     
     pool.join() 
+    del pool
     
     return vidTensorList
     

@@ -53,7 +53,7 @@ print('number of frames: ', nFrms)
 myCv = cvFun.myCv(height, width) 
 
 # get frame 1 mats
-frame1 = 93
+frame1 = 560
 rgbMat1, xyzMat1, maskMat1 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
 
 height, width = maskMat1.shape
@@ -67,13 +67,20 @@ rgbdObj = rgbd.RGBD_odometry_gpu_class(rgbMat1, xyzMat1, maskMat1)
 imgTransformObj = imgt.image_transform_class(height, width, rgbdObj.nPoi)
 
 # add new frames
+deltaFrames = 60
 drVec = np.zeros((nFrms, 3))
 
-for frame in range(1, nFrms):
-
+for frame in range(frame1, frame1 + deltaFrames):
+    print(frame)
+    
     rgbMat2, xyzMat2, maskMat2 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame)
     
-    optDeltaVec, optNormVec, optCostVec, xyzPoints_p, xyzPoints_c, xyzPoints_pinc = rgbdObj.matchNewFrame(rgbMat2, xyzMat2, maskMat2)
+    if frame < frame1 + 1:
+        updatePrevious = True
+    else:
+        updatePrevious = False
+            
+    optDeltaVec, optNormVec, optCostVec, xyzPoints_p, xyzPoints_c, xyzPoints_pinc = rgbdObj.matchNewFrame(rgbMat2, xyzMat2, maskMat2, updatePrevious)
     
     R_bpTobc = rgbdObj.R_bpTobc
     t_bpTobc_inbc = rgbdObj.t_bpTobc_inbc

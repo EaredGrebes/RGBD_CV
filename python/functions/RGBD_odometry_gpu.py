@@ -92,11 +92,12 @@ class RGBD_odometry_gpu_class:
 
             
     #--------------------------------------------------------------------------
-    def matchNewFrame(self, rgbMat, xyzMat, maskMat):
+    def matchNewFrame(self, rgbMat, xyzMat, maskMat, updatePrevious):
         
         # save current poi data to previous
-        self.sensorData_p = copy.deepcopy(self.sensorData_c)
-        self.poiMats_p = copy.deepcopy(self.poiMats_c)
+        if updatePrevious:
+            self.sensorData_p = copy.deepcopy(self.sensorData_c)
+            self.poiMats_p = copy.deepcopy(self.poiMats_c)
         
         # convert new sensor data to current poi data
         setGpuSensorDataDict(self.sensorData_c, xyzMat, rgbMat, maskMat)
@@ -140,7 +141,7 @@ class RGBD_odometry_gpu_class:
 
         # use matched XYZ matricies to compute rigid transform between frames
         Nmatches = self.cornerMatchedIdx_p.shape[1]
-        # print('Nmatches: {}'.format(Nmatches))
+        print('Nmatches: {}'.format(Nmatches))
         
         xyzPoints_p = self.xyzVecMat_p[:Nmatches*self.xyzScale*self.xyzScale,:].get()
         xyzPoints_c = self.xyzVecMat_c[:Nmatches*self.xyzScale*self.xyzScale,:].get()
@@ -191,7 +192,6 @@ class RGBD_odometry_gpu_class:
                                                                                          self.sensorData_c['greyMat'], \
                                                                                          Dcm,    \
                                                                                          translation)
-            
             
             jacobianMat = jacobianMat_gpu.get()
             costVec = costVec_gpu.get()

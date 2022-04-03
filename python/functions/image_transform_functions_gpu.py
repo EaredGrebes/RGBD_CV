@@ -149,7 +149,7 @@ void multipleTransform_xyzPoints(float* costMat,      // outputs
         float z_frame2 = rotationMat[iCol*9 + 6] * x_frame1 + rotationMat[iCol*9 + 7] * y_frame1 + rotationMat[iCol*9 + 8] * z_frame1 + translationVec[iCol*3 + 2];
   
         // compute point new pixel x,y coordinates in transformed frame
-        if (z_frame1 > 10) { 
+        if ((z_frame1 > 100) && (z_frame2 > 100)) { 
             float xPixel = x_frame2 / z_frame2;
             float yPixel = y_frame2 / z_frame2;
             
@@ -168,7 +168,7 @@ void multipleTransform_xyzPoints(float* costMat,      // outputs
                 (zMeas_frame2 > 10) &&
                 (fabsf(zErr) < 100) ) {
                     
-               costMat[iRow*nTransforms + iCol] = 1*zErr + greyErr;
+               costMat[iRow*nTransforms + iCol] = 2*zErr + greyErr;
             }
                                       
         }
@@ -282,6 +282,8 @@ class image_transform_class:
                     cp.int32(self.nPoi),
                     cp.int32(self.nTransforms)) )   
             
+        cp.cuda.Stream.null.synchronize()
+        
         jacobianMat = (self.costPerturbMat[:, self.posIdx] - self.costPerturbMat[:, self.negIdx]) / cp.tile(self.dx, (self.nPoi, 1))
     
         costVec = self.costPerturbMat[:, self.nullIdx]
