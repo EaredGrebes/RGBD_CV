@@ -351,7 +351,7 @@ def generateXYZVecMat(xyzVecMat, \
                       greyMat, \
                       maskMat, \
                       imgPixelIdx, \
-                      scale,
+                      scale,       \
                       offset):
     
     # point of interest matrix is shape [nFeatures*scale, scale]

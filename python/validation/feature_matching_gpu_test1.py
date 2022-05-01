@@ -51,11 +51,11 @@ print('number of frames: ', nFrms)
 myCv = cvFun.myCv(height, width) 
 
 # get frame 1 mats
-frame1 = 24
+frame1 = 100
 rgbMat1, xyzMat1, maskMat1 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
 greyMat1 = cvFun.rgbToGreyMat(rgbMat1).astype(int) 
 
-frame2 = frame1 + 1
+frame2 = frame1 + 40
 rgbMat2, xyzMat2, maskMat2 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame2)
 greyMat1 = cvFun.rgbToGreyMat(rgbMat1).astype(int) 
 
@@ -238,8 +238,8 @@ rgb2Match = np.copy(rgbMat2)
 for ii in range(cornerMatchIdx1.shape[1]):
     
     color = 255 * np.random.rand(3)
-    fd.drawBox(rgb1Match, cornerMatchIdx1[0, ii], cornerMatchIdx1[1, ii], 8, color.astype(np.ubyte))
-    fd.drawBox(rgb2Match, cornerMatchIdx2[0, ii], cornerMatchIdx2[1, ii], 8, color.astype(np.ubyte))
+    fd.drawBox(rgb1Match, cornerMatchIdx1[0, ii], cornerMatchIdx1[1, ii], 12, color.astype(np.ubyte))
+    fd.drawBox(rgb2Match, cornerMatchIdx2[0, ii], cornerMatchIdx2[1, ii], 12, color.astype(np.ubyte))
     
 plt.figure('rgb  frame 1 interest points')
 plt.title('rgb  frame 1 interest points')

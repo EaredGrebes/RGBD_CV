@@ -188,6 +188,11 @@ def genOpen3dPointCloud(xyzMat, rgbMat, maskMat):
     
     xyz, rgb = genPointCloud(xyzMat, rgbMat, maskMat)
     
+    # to align with open3d plotting axes
+    xyz[:,0] = xyz[:,0]
+    xyz[:,1] = -xyz[:,1]
+    xyz[:,2] = -xyz[:,2]
+    
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(xyz)
     pcd.colors = o3d.utility.Vector3dVector(rgb / 255)  # open3d expects color between [0, 1]

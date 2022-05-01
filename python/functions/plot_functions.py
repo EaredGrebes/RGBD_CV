@@ -3,7 +3,25 @@ import cv2
 import open3d as o3d
 import matplotlib.pyplot as plt
 
-
+#------------------------------------------------------------------------------
+def plot_Open3d(pcd):
+    
+    #o3d.visualization.draw_geometries([pcd1])
+    vis = o3d.visualization.Visualizer()
+    vis.create_window(window_name='TopLeft', width=960, height=540, left=0, top=0)
+    opt = vis.get_render_option()
+    opt.background_color = np.asarray([0, 0, 0])
+    vis.add_geometry(pcd)
+    
+    while True:
+        #vis.update_geometry()
+        if not vis.poll_events():
+            break
+        vis.update_renderer()
+    
+    vis.destroy_window()
+    
+    
 #------------------------------------------------------------------------------
 def plotDual_Open3d(pcd1, pcd2):
     

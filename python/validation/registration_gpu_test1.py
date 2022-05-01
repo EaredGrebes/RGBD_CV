@@ -117,6 +117,8 @@ poi_maskMat2_gpu = cp.zeros((nFeatures*matchScale, matchScale), dtype = bool)
 xyzVecMat1_gpu = cp.zeros((nFeatures * xyzScale * xyzScale, 3), dtype = cp.float32)
 xyzVecMat2_gpu = cp.zeros((nFeatures * xyzScale * xyzScale, 3), dtype = cp.float32)
 
+# grey points matrix
+greyVec1_gpu = cp.zeros((nFeatures * xyzScale * xyzScale), dtype = cp.float32)
 
 # previous corner points
 cornerObjGpu.findCornerPoints(cornerPointIdx1_gpu, gpuDat1['greyMat'], gpuDat1['maskMat'])
@@ -163,9 +165,11 @@ cornerMatchedIdx2_gpu = matchObjGpu.computeMatches( poi_rMat1_gpu, \
                                                     cornerPointIdx2_gpu)
     
 fmgpu.generateXYZVecMat(xyzVecMat1_gpu, \
+                        greyVec1_gpu,   \
                         gpuDat1['xMat'], \
                         gpuDat1['yMat'], \
                         gpuDat1['zMat'], \
+                        gpuDat1['greyMat'], \
                         gpuDat1['maskMat'], \
                         cornerMatchedIdx1_gpu, \
                         xyzScale,

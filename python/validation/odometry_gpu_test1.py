@@ -53,7 +53,7 @@ print('number of frames: ', nFrms)
 myCv = cvFun.myCv(height, width) 
 
 # get frame 1 mats
-frame1 = 560
+frame1 = 100
 rgbMat1, xyzMat1, maskMat1 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
 
 height, width = maskMat1.shape
@@ -67,7 +67,7 @@ rgbdObj = rgbd.RGBD_odometry_gpu_class(rgbMat1, xyzMat1, maskMat1)
 imgTransformObj = imgt.image_transform_class(height, width, rgbdObj.nPoi)
 
 # add new frames
-deltaFrames = 60
+deltaFrames = 20
 drVec = np.zeros((nFrms, 3))
 
 for frame in range(frame1, frame1 + deltaFrames):
@@ -201,7 +201,7 @@ xyzMat_1in2 = np.stack((xMat_frame1_transformed.get(), yMat_frame1_transformed.g
 #------------------------------------------------------------------------------
 # plotting
 
-plt3d = False
+plt3d = True
 if plt3d:
     
     def make3dset(xyzPoints, color):
@@ -229,7 +229,8 @@ if plt3d:
     pcd7 = make3dset(xyzVecMat_1in2_full, np.array([0.6, 0, 0.6]))  
     
     o3d.visualization.draw_geometries([pcd6, pcd7])
-
+    o3d.visualization.draw_geometries([pcd1, pcd2])
+    o3d.visualization.draw_geometries([pcd3, pcd2])
 # plotting matches
 
 
