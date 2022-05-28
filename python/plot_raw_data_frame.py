@@ -23,20 +23,11 @@ import cv_functions as cvFun
 folder = '../data/'
 
 # calibration data
+numpyName = folder + 'rawData1.npz'
 calName = folder + 'calibration.h5'
-numpyName = folder + 'rawData.npz'
-
-# video streams
-vdid = {'blue': 0, 'green': 1, 'red': 2, 'depth8L': 3, 'depth8U': 4}
-
-videoDat = [{'filename': folder + 'videoCaptureTest1.avi', 'channel': 0}, \
-            {'filename': folder + 'videoCaptureTest1.avi', 'channel': 1}, \
-            {'filename': folder + 'videoCaptureTest1.avi', 'channel': 2}, \
-            {'filename': folder + 'videoCaptureTest2.avi', 'channel': 0}, \
-            {'filename': folder + 'videoCaptureTest3.avi', 'channel': 0}] 
     
 start = time.time()
-redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens = vid.loadDataSet(videoDat, vdid, calName, numpyName)
+redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens = vid.loadDataSet(calName, numpyName, folder)
 print('timer:', time.time() - start)
    
 

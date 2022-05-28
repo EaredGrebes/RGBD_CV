@@ -49,7 +49,6 @@ void deproject_pixel_to_point_distBronwCon(float &xCorrected, float &yCorrected,
 
    xCorrected = x;
    yCorrected = y;
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////

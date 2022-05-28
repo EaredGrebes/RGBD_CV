@@ -8,7 +8,17 @@ import h5py
 
 #------------------------------------------------------------------------------
 # loads multiple videos in parallel
-def loadDataSet(videoDat, vdid, calName, numpyName):
+def loadDataSet(calName, numpyName, folder):
+    
+    # video streams
+    vdid = {'blue': 0, 'green': 1, 'red': 2, 'depth8L': 3, 'depth8U': 4}
+
+    videoDat = [{'filename': folder + 'videoCaptureTest1.avi', 'channel': 0}, \
+                {'filename': folder + 'videoCaptureTest1.avi', 'channel': 1}, \
+                {'filename': folder + 'videoCaptureTest1.avi', 'channel': 2}, \
+                {'filename': folder + 'videoCaptureTest2.avi', 'channel': 0}, \
+                {'filename': folder + 'videoCaptureTest3.avi', 'channel': 0}] 
+        
     
     # load numpy file, it's faster
     if exists(numpyName):
