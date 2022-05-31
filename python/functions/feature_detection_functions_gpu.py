@@ -86,7 +86,6 @@ void computeCrossProdMat(float* crossProdMat,  // outputs
 }
 ''', 'computeCrossProdMat')
 
-
 #------------------------------------------------------------------------------
 cp_findLocalMax = cp.RawKernel(r'''
 extern "C" __global__
@@ -180,7 +179,7 @@ class corner_detector_class:
     def findCornerPoints(self, cornerPointIdx, greyMat, maskMat):
         
         # greyMat and maskMat must be cupy arrays
-        findCornerPoints(self.gradxMat, \
+        find_corner_points(self.gradxMat, \
                         self.gradyMat, \
                         self.crossProdMat, \
                         self.coarseMaxMat, \
@@ -200,7 +199,7 @@ class corner_detector_class:
         idxMaxSorted = self.courseMaxVec_cpu.argsort()[-self.nMax:]
 
         cornerPointIdx[0,:] = self.pixelXVec[idxMaxSorted]
-        cornerPointIdx[1,:] = self.pixelYVec[idxMaxSorted]    
+        cornerPointIdx[1,:] = self.pixelYVec[idxMaxSorted]
 
 
 #------------------------------------------------------------------------------
@@ -274,7 +273,7 @@ def findLocalMax(localMaxMat, courseMaxVec, pixelXVec, pixelYVec, mat, localScal
     
     
 #------------------------------------------------------------------------------
-def findCornerPoints(gradxMat, \
+def find_corner_points(gradxMat, \
                      gradyMat, \
                      crossProdMat, \
                      coarseMaxMat, \

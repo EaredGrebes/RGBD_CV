@@ -8,14 +8,12 @@ import open3d as o3d
  # custom functions
 sys.path.insert(1, '../functions')
 import video_functions as vid
-#import feature_detection_functions as fd
 import feature_detection_functions as fd
 import feature_detection_functions_gpu as fdgpu
 import feature_matching_functions_gpu as fmgpu
 import cv_functions as cvFun
 
-loadData = True
-runCPU = False
+loadData = False
  
 #------------------------------------------------------------------------------
 # data configuration and loading
@@ -25,7 +23,7 @@ if loadData:
      # calibration data
     folder = '../../data/'
     calName = folder + 'calibration.h5'
-    numpyName = folder + 'rawData2.npz'
+    numpyName = folder + 'rawData.npz'
          
     start = time.time()
     redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens = vid.loadDataSet(calName, numpyName, folder)
@@ -42,24 +40,21 @@ print('number of frames: ', nFrms)
 myCv = cvFun.myCv(height, width) 
 
 # get frame 1 mats
-frame1 = 60
+frame1 = 220
 rgbMat1, xyzMat1, maskMat1 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
 greyMat1 = cvFun.rgbToGreyMat(rgbMat1).astype(int) 
 
-frame2 = frame1 + 10
+frame2 = frame1 + 1
 rgbMat2, xyzMat2, maskMat2 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame2)
 greyMat1 = cvFun.rgbToGreyMat(rgbMat1).astype(int) 
 
 height, width = maskMat1.shape
     
-    
 #------------------------------------------------------------------------------
 # GPU implementation testing
 cornerScale = 8
-matchScale = 15
-offset = np.int32(1 + matchScale/2)
+matchScale = 13
 nFeatures = 128
-
 
 # inputs
 rMat1_gpu = cp.array(rgbMat1[:,:,0], dtype = cp.float32)
@@ -84,145 +79,40 @@ matchObjGpu = fmgpu.feature_matching_class(height, width, nFeatures, matchScale)
 cornerPointIdx1_gpu = cp.zeros((2,nFeatures), dtype = cp.int32)
 cornerPointIdx2_gpu = cp.zeros((2,nFeatures), dtype = cp.int32)
 
-# create points of interest matrix
-poi_rMat1_gpu = cp.zeros((nFeatures*matchScale, matchScale), dtype = cp.float32)
-poi_gMat1_gpu = cp.zeros((nFeatures*matchScale, matchScale), dtype = cp.float32)
-poi_bMat1_gpu = cp.zeros((nFeatures*matchScale, matchScale), dtype = cp.float32)
-poi_maskMat1_gpu = cp.zeros((nFeatures*matchScale, matchScale), dtype = bool)
-
-poi_rMat2_gpu = cp.zeros((nFeatures*matchScale, matchScale), dtype = cp.float32)
-poi_gMat2_gpu = cp.zeros((nFeatures*matchScale, matchScale), dtype = cp.float32)
-poi_bMat2_gpu = cp.zeros((nFeatures*matchScale, matchScale), dtype = cp.float32)
-poi_maskMat2_gpu = cp.zeros((nFeatures*matchScale, matchScale), dtype = bool)
-
-start = time.time()
-
 # previous corner points
+start = time.time()
 cornerObjGpu.findCornerPoints(cornerPointIdx1_gpu, greyMat1_gpu, maskMat1_gpu)
 
 # current corner points
 cornerObjGpu.findCornerPoints(cornerPointIdx2_gpu, greyMat2_gpu, maskMat2_gpu)
 
-fmgpu.generatePointsOfInterestMat(  poi_rMat1_gpu, \
-                                    poi_gMat1_gpu, \
-                                    poi_bMat1_gpu, \
-                                    poi_maskMat1_gpu, \
-                                    rMat1_gpu, \
-                                    gMat1_gpu, \
-                                    bMat1_gpu, \
-                                    maskMat1_gpu, \
-                                    cornerPointIdx1_gpu,
-                                    matchScale,
-                                    offset)
+matchObjGpu.set_img1_features(rMat1_gpu, gMat1_gpu, bMat1_gpu, maskMat1_gpu, cornerPointIdx1_gpu)
+matchObjGpu.set_img2_features(rMat2_gpu, gMat2_gpu, bMat2_gpu, maskMat2_gpu, cornerPointIdx2_gpu)
+cornerMatchedIdx1, cornerMatchedIdx2 = matchObjGpu.computeFeatureMatches()
+print('timer:', time.time() - start) 
 
-fmgpu.generatePointsOfInterestMat(  poi_rMat2_gpu, \
-                                    poi_gMat2_gpu, \
-                                    poi_bMat2_gpu, \
-                                    poi_maskMat2_gpu, \
-                                    rMat2_gpu, \
-                                    gMat2_gpu, \
-                                    bMat2_gpu, \
-                                    maskMat2_gpu, \
-                                    cornerPointIdx2_gpu,
-                                    matchScale,
-                                    offset)
-    
-matchObjGpu.createCostMat(poi_rMat1_gpu, \
-                          poi_gMat1_gpu, \
-                          poi_bMat1_gpu, \
-                          poi_maskMat1_gpu, \
-                          poi_rMat2_gpu, \
-                          poi_gMat2_gpu, \
-                          poi_bMat2_gpu, \
-                          poi_maskMat2_gpu)
+cornerMatchIdx1 = cornerMatchedIdx1.get()
+cornerMatchIdx2 = cornerMatchedIdx2.get()
 
-costMat = matchObjGpu.costCoarseMat.get()
-
-colMin = costMat.argmin(axis = 0)
-rowMin = costMat.argmin(axis = 1)
-
-idxMatch = rowMin[colMin] == np.arange(nFeatures)
-
-idxMatchImg2 = np.arange(nFeatures)[idxMatch]
-idxMatchImg1 = colMin[idxMatchImg2]
-
-cornerMatchedIdx1_gpu = cornerPointIdx1_gpu[:, idxMatchImg1]
-cornerMatchedIdx2_gpu = cornerPointIdx2_gpu[:, idxMatchImg2]
-
-print('timer:', time.time() - start)
-
-# verification
-nMatchedPoints = cornerMatchedIdx1_gpu.shape[1]
-print('Number of matched points: {}'.format(nMatchedPoints))
-
-poi_rMat1 = poi_rMat1_gpu.get()
-poi_rMat2 = poi_rMat2_gpu.get()
-cornerPointIdx1 = cornerPointIdx1_gpu.get()
-cornerPointIdx2 = cornerPointIdx2_gpu.get()
-costFineMat = matchObjGpu.costFineMat.get()
-costCoarseMat = matchObjGpu.costCoarseMat.get()
-
-cornerMatchIdx1 = cornerMatchedIdx1_gpu.get()
-cornerMatchIdx2 = cornerMatchedIdx2_gpu.get()
-
-# slow implementation
-offset = np.floor(1 + matchScale/2).astype(int)
-costFineMat_test = np.zeros((nFeatures*matchScale, nFeatures*matchScale))   
-costCoarseMat_test = np.zeros((nFeatures, nFeatures))
-
-def getPixelRanges(x, y, matchScale, offset):
-    x1 = x- offset
-    x2 = x + matchScale - offset
-    y1 = y - offset
-    y2 = y + matchScale - offset  
-    
-    return x1, x2, y1, y2
-
-def computePoiMat(mat, cornerPointIdx, matchScale, offset, nFeatures):
-    
-    poiMat_test = np.zeros((nFeatures*matchScale, matchScale))
-    for ii in range(nFeatures):
-        x1, x2, y1, y2 = getPixelRanges(cornerPointIdx[0,ii] , cornerPointIdx[1,ii] , matchScale, offset)
-        poiMat_test[ii*matchScale:(ii+1)*matchScale, :] = mat[x1:x2, y1:y2]
-    
-    return poiMat_test
-
-
-Poi_r1_test = computePoiMat(rgbMat1[:,:,0], cornerPointIdx1, matchScale, offset, nFeatures)
-Poi_g1_test = computePoiMat(rgbMat1[:,:,1], cornerPointIdx1, matchScale, offset, nFeatures)
-Poi_b1_test = computePoiMat(rgbMat1[:,:,2], cornerPointIdx1, matchScale, offset, nFeatures)
-Poi_mask1_test = computePoiMat(maskMat1, cornerPointIdx1, matchScale, offset, nFeatures)
-
-Poi_r2_test = computePoiMat(rgbMat2[:,:,0], cornerPointIdx2, matchScale, offset, nFeatures)
-Poi_g2_test = computePoiMat(rgbMat2[:,:,1], cornerPointIdx2, matchScale, offset, nFeatures)
-Poi_b2_test = computePoiMat(rgbMat2[:,:,2], cornerPointIdx2, matchScale, offset, nFeatures)
-Poi_mask2_test = computePoiMat(maskMat2, cornerPointIdx2, matchScale, offset, nFeatures)
-
-c = matchScale    
-for ii in range(nFeatures):
-    for jj in range(nFeatures):
-        
-        err1 = Poi_r1_test[ii*c:(ii+1)*c, :] - Poi_r2_test[jj*c:(jj+1)*c, :]
-        err2 = Poi_g1_test[ii*c:(ii+1)*c, :] - Poi_g2_test[jj*c:(jj+1)*c, :]
-        err3 = Poi_b1_test[ii*c:(ii+1)*c, :] - Poi_b2_test[jj*c:(jj+1)*c, :]
-        
-        errMat = err1*err1 + err2*err2 + err3*err3
-        
-        maskMat = np.logical_and(Poi_mask1_test[ii*c:(ii+1)*c, :], Poi_mask2_test[jj*c:(jj+1)*c, :])
-        
-        errMat[np.invert(maskMat)] = 0
-
-        costFineMat_test[ii*c:(ii+1)*c, jj*c:(jj+1)*c] = errMat
-        
-        numPoints = np.sum(errMat > 0)
-        if (numPoints > 0):
-            costCoarseMat_test[ii,jj] = np.sum(errMat) / numPoints
-
+print('number of frames matched:')
+print(cornerMatchIdx1.shape[1])
 
 #------------------------------------------------------------------------------
 # plotting
 plt.close('all')
 
+def plot_feature(feat_r, feat_g, feat_b, idx, scale):
+
+    mat = np.stack((np.reshape(feat_r[idx,:], (scale, scale)),
+                    np.reshape(feat_g[idx,:], (scale, scale)),
+                    np.reshape(feat_b[idx,:], (scale, scale))), axis = 2)
+    
+    plt.figure()
+    plt.imshow(mat/255)
+
+#for idx in range(3):
+#    plot_feature(feature_rMat1, feature_gMat1, feature_bMat1, idx, matchScale)   
+    
 rgb1Match = np.copy(rgbMat1)
 rgb2Match = np.copy(rgbMat2)
 
@@ -240,19 +130,6 @@ plt.figure('rgb  frame 2 interest points')
 plt.title('rgb  frame 2 interest points')
 plt.imshow(rgb2Match)
 
-check1 = np.isclose(poi_rMat1, Poi_r1_test)
-check3 = np.isclose(costFineMat_test, costFineMat)
-check4 = np.isclose(costCoarseMat_test, costCoarseMat)
-
-print('check 1: {}'.format(check1.min()))
-print('check 3: {}'.format(check3.min()))
-print('check 4: {}'.format(check4.min()))
-
-plt.figure('check 3')
-plt.spy(check3)
-
-plt.figure('check 4')
-plt.spy(check4)
 
 
 

@@ -2,91 +2,50 @@ import numpy as np
 import cupy as cp
 
 #------------------------------------------------------------------------------
-cp_sumCostMatrix = cp.RawKernel(r'''
-extern "C" __global__
-void sumCostMatrix( float* costCoarseMat,   // outputs
-                    float* costFineMat,     // inputs
-                    int coarseHeight, 
-                    int coarseWidth, 
-                    int fineHeight, 
-                    int fineWidth,                    
-                    int scale) {
- 
-    int iCol = blockIdx.x * blockDim.x  + threadIdx.x;
-    int iRow = blockIdx.y * blockDim.y  + threadIdx.y;
-  
-    if( (iRow < coarseHeight) && (iCol < coarseWidth) ) {
-    
-        int id_x1 = iRow * scale;
-        int id_x2 = (iRow + 1) * scale;
-        int id_y1 = iCol * scale;
-        int id_y2 = (iCol + 1) * scale;
-        
-        float sum = 0;
-        float numPoints = 0;
-        
-        for (int ii = id_x1; ii < id_x2; ii++) {
-            for (int jj = id_y1; jj < id_y2; jj++) {
-                    
-                sum = sum + costFineMat[ii*fineWidth + jj];
-                
-                if (costFineMat[ii*fineWidth + jj] > 0){
-                   numPoints = numPoints + 1;
-                }
-            }
-        }
-        if (numPoints > 0.0){
-            costCoarseMat[iRow*coarseWidth + iCol] = sum / numPoints;
-        }
-
-    }
-}
-''', 'sumCostMatrix')
-
-
+# cuda kernels
 #------------------------------------------------------------------------------
-cp_costFromPoiMatrix = cp.RawKernel(r'''
+cp_costFromFeatMatrix = cp.RawKernel(r'''
 extern "C" __global__
-void costMatrix(float* costMat,   // outputs
-                float* poiMat11,   // inputs
-                float* poiMat21,
-                float* poiMat31, 
-                bool*  poiMaskMat1,
-                float* poiMat12, 
-                float* poiMat22, 
-                float* poiMat32, 
-                bool*  poiMaskMat2,
+void costMatrix(float* costMat,     // outputs
+                float* featMat11,   // inputs
+                float* featMat21,
+                float* featMat31, 
+                bool*  featMaskMat1,
+                float* featMat12, 
+                float* featMat22, 
+                float* featMat32, 
+                bool*  featMaskMat2,
                 int costHeight, 
                 int costWidth, 
-                int scale) {
+                int featLength) {
  
     int iCol = blockIdx.x * blockDim.x  + threadIdx.x;
     int iRow = blockIdx.y * blockDim.y  + threadIdx.y;
-  
+    int img1_feature_index = iRow;
+    int img2_feature_index = iCol;
+    float nFeatures = 0.0;
+    float featSum = 0.0;
+    float e1 = 0.0;
+    float e2 = 0.0;
+    float e3 = 0.0;
+    
     if( (iRow < costHeight) && (iCol < costWidth) ) {
         
-        int img1_feature_index = iRow / scale;
-        int img2_feature_index = iCol / scale;
+        for (int f = 0; f < featLength; f++) {
         
-        int img_xOffset = iRow - (img1_feature_index * scale);
-        int img_yOffset = iCol - (img2_feature_index * scale);
-        
-        int poi1_x = (img1_feature_index * scale) + img_xOffset;
-        int poi1_y = img_yOffset;
-        
-        int poi2_x = (img2_feature_index * scale) + img_xOffset;
-        int poi2_y = img_yOffset;
+            if (featMaskMat1[iRow*featLength + f] && featMaskMat2[iCol*featLength + f]) {
                 
-        float err1 = poiMat11[poi1_x*scale + poi1_y] - poiMat12[poi2_x*scale + poi2_y];
-        float err2 = poiMat21[poi1_x*scale + poi1_y] - poiMat22[poi2_x*scale + poi2_y];
-        float err3 = poiMat31[poi1_x*scale + poi1_y] - poiMat32[poi2_x*scale + poi2_y];
-        
-        if (poiMaskMat1[poi1_x*scale + poi1_y] && poiMaskMat2[poi2_x*scale + poi2_y]) {
+                e1 = featMat11[iRow*featLength + f] - featMat12[iCol*featLength + f];
+                e2 = featMat21[iRow*featLength + f] - featMat22[iCol*featLength + f];
+                e3 = featMat31[iRow*featLength + f] - featMat32[iCol*featLength + f];
                 
-            costMat[iRow*costWidth + iCol] = err1*err1 + err2*err2 + err3*err3;
-            
-        } else {
-            costMat[iRow*costWidth + iCol] = 0.0;
+                featSum += e1*e1 + e2*e2 + e3*e3;
+                nFeatures += 1.0;
+            }
+        }
+                
+        if (nFeatures > 0.0) {   
+            costMat[iRow*costWidth + iCol] = featSum / nFeatures;
         }
     }
 }
@@ -94,49 +53,51 @@ void costMatrix(float* costMat,   // outputs
 
 
 #------------------------------------------------------------------------------
-cp_poiMatrix = cp.RawKernel(r'''
+cp_featMatrix = cp.RawKernel(r'''
 extern "C" __global__
-void poiMatrix(float* poiMat1,  // outputs
-               float* poiMat2,
-               float* poiMat3,
-               bool*  poiMaskMat,
+void featMatrix(float* featMat1,  // outputs
+               float* featMat2,
+               float* featMat3,
+               bool*  featMaskMat,
                float* imgMat1,   // inputs
                float* imgMat2,
                float* imgMat3,
                bool* maskMat,
                int* imgPixelId_xVec, 
                int* imgPixelId_yVec,   
-               int poiHeight, 
-               int poiWidth, 
+               int featHeight, 
+               int featWidth, 
                int imgHeight,
                int imgWidth,
                int scale,
-               int offset) {
-                    
+               int offset) {       
  
     int iCol = blockIdx.x * blockDim.x  + threadIdx.x;
     int iRow = blockIdx.y * blockDim.y  + threadIdx.y;
   
-    if( (iRow < poiHeight) && (iCol < poiWidth) ) {
+    if( (iRow < featHeight) && (iCol < featWidth) ) {
         
-        int img_feature_index = iRow / scale;
-        
-        int img_xOffset = iRow - (img_feature_index * scale);
-        int img_yOffset = iCol;
+        int img_feature_index = iRow;
+        int img_xOffset = iCol / scale;
+        int img_yOffset = iCol % scale;
         
         int img_x = imgPixelId_xVec[img_feature_index] + img_xOffset - offset;
         int img_y = imgPixelId_yVec[img_feature_index] + img_yOffset - offset;
         
+        float rCenter = imgMat1[imgPixelId_xVec[iRow]*imgWidth + imgPixelId_yVec[iRow]];
+        float gCenter = imgMat2[imgPixelId_xVec[iRow]*imgWidth + imgPixelId_yVec[iRow]];
+        float bCenter = imgMat3[imgPixelId_xVec[iRow]*imgWidth + imgPixelId_yVec[iRow]];
+        
         if ( (img_x >= 0) && (img_x < imgHeight) && (img_y >= 0) && (img_y < imgWidth) ) { 
                 
-            poiMat1[iRow*poiWidth + iCol] = imgMat1[img_x*imgWidth + img_y];
-            poiMat2[iRow*poiWidth + iCol] = imgMat2[img_x*imgWidth + img_y];
-            poiMat3[iRow*poiWidth + iCol] = imgMat3[img_x*imgWidth + img_y];
-            poiMaskMat[iRow*poiWidth + iCol] = maskMat[img_x*imgWidth + img_y];
+            featMat1[iRow*featWidth + iCol]    = imgMat1[img_x*imgWidth + img_y];
+            featMat2[iRow*featWidth + iCol]    = imgMat2[img_x*imgWidth + img_y];
+            featMat3[iRow*featWidth + iCol]    = imgMat3[img_x*imgWidth + img_y];
+            featMaskMat[iRow*featWidth + iCol] = maskMat[img_x*imgWidth + img_y];
         }
     }
 }
-''', 'poiMatrix')
+''', 'featMatrix')
 
 
 #------------------------------------------------------------------------------
@@ -159,8 +120,7 @@ void xyzMatrix(float* xyzVecMat,  // outputs
                int scale2,
                int offset,
                int nPoints) {
-                    
- 
+
     int iRow = blockIdx.x * blockDim.x  + threadIdx.x;
   
     if (iRow < xyzHeight) {
@@ -195,48 +155,75 @@ void xyzMatrix(float* xyzVecMat,  // outputs
 
 
 #------------------------------------------------------------------------------
-  
+# main class
+#------------------------------------------------------------------------------
 class feature_matching_class:
 
     def __init__(self, imHeight, imgWidth, nFeatures, scale): 
         
+        # parameters
         self.imgHeight = imHeight
         self.imgWidth = imgWidth
-    
         self.nFeatures = nFeatures
         self.scale = scale
-        self.costFineHeight = nFeatures * scale 
-        self.costFineWidth = nFeatures * scale 
-        self.costCoarseHeight = nFeatures 
-        self.costCoarseWidth = nFeatures 
+        self.offset = np.int32(1 + scale/2)
+        self.featLength = scale*scale
+        self.costHeight = nFeatures 
+        self.costWidth = nFeatures 
         
-        self.costFineMat = cp.zeros((self.costFineHeight, self.costFineHeight), dtype = cp.float32)
-        self.maskFineMat = cp.zeros((self.costFineHeight, self.costFineHeight), dtype = cp.bool)
-        self.costCoarseMat = cp.zeros((self.nFeatures, self.nFeatures), dtype = cp.float32)
+        # working variables
+        self.im1_featMats = self.generateFeatureMats(self.nFeatures, self.featLength)
+        self.im2_featMats = self.generateFeatureMats(self.nFeatures, self.featLength)
+        self.costMat = cp.zeros((self.nFeatures, self.nFeatures), dtype = cp.float32)
         
         
-    def computeMatches( self, \
-                        poi_rMat1, \
-                        poi_gMat1, \
-                        poi_bMat1, \
-                        poi_maskMat1,    \
-                        cornerPointIdx1, \
-                        poi_rMat2, \
-                        poi_gMat2, \
-                        poi_bMat2, \
-                        poi_maskMat2,
-                        cornerPointIdx2):
+    def generateFeatureMats(self, nFeatures, featLength):
+        featMats = {
+            'feat_rMat':    cp.zeros((nFeatures, featLength), dtype = cp.float32),
+            'feat_gMat':    cp.zeros((nFeatures, featLength), dtype = cp.float32),
+            'feat_bMat':    cp.zeros((nFeatures, featLength), dtype = cp.float32),
+            'feat_maskMat': cp.zeros((nFeatures, featLength), dtype = bool),
+            'imgFeatureIdx': cp.zeros((2, nFeatures), dtype = cp.int32)
+        }
+        return featMats
+        
+    def createFeatureMat(self, featMatDict, rMat, gMat, bMat, maskMat, imgFeatureIdx):
+        
+        featMatDict['imgFeatureIdx'] = imgFeatureIdx
+        
+        generateFeaturetMat(featMatDict['feat_rMat'], \
+                            featMatDict['feat_gMat'], \
+                            featMatDict['feat_bMat'], \
+                            featMatDict['feat_maskMat'], \
+                            rMat, \
+                            gMat, \
+                            bMat, \
+                            maskMat, \
+                            imgFeatureIdx, \
+                            self.scale,
+                            self.offset)
             
-        self.createCostMat( poi_rMat1, \
-                            poi_gMat1, \
-                            poi_bMat1, \
-                            poi_maskMat1, \
-                            poi_rMat2, \
-                            poi_gMat2, \
-                            poi_bMat2, \
-                            poi_maskMat2)
+            
+    def set_img1_features(self, rMat, gMat, bMat, maskMat, imgFeatureIdx):
+        self.createFeatureMat(self.im1_featMats, rMat, gMat, bMat, maskMat, imgFeatureIdx)
+        
+        
+    def set_img2_features(self, rMat, gMat, bMat, maskMat, imgFeatureIdx):
+        self.createFeatureMat(self.im2_featMats, rMat, gMat, bMat, maskMat, imgFeatureIdx)       
+          
+        
+    def computeFeatureMatches(self):
+            
+        self.createCostMat( self.im1_featMats['feat_rMat'], \
+                            self.im1_featMats['feat_gMat'], \
+                            self.im1_featMats['feat_bMat'], \
+                            self.im1_featMats['feat_maskMat'], \
+                            self.im2_featMats['feat_rMat'], \
+                            self.im2_featMats['feat_gMat'], \
+                            self.im2_featMats['feat_bMat'], \
+                            self.im2_featMats['feat_maskMat'])
 
-        costMat = self.costCoarseMat.get()
+        costMat = self.costMat.get()
 
         colMin = costMat.argmin(axis = 0)
         rowMin = costMat.argmin(axis = 1)
@@ -246,100 +233,92 @@ class feature_matching_class:
         idxMatchImg2 = np.arange(self.nFeatures)[idxMatch]
         idxMatchImg1 = colMin[idxMatchImg2]
         
-        cornerMatchedIdx1 = cornerPointIdx1[:, idxMatchImg1]
-        cornerMatchedIdx2 = cornerPointIdx2[:, idxMatchImg2]
+        cornerMatchedIdx1 = self.im1_featMats['imgFeatureIdx'][:, idxMatchImg1]
+        cornerMatchedIdx2 = self.im2_featMats['imgFeatureIdx'][:, idxMatchImg2]
         
         return cornerMatchedIdx1, cornerMatchedIdx2
 
         
-    def createCostMat(self, poiMat11, poiMat21, poiMat31, poiMaskMat1, poiMat12, poiMat22, poiMat32, poiMaskMat2):
+    def createCostMat(self, 
+                      featMat11, 
+                      featMat21, 
+                      featMat31, 
+                      featMaskMat1, 
+                      featMat12, 
+                      featMat22, 
+                      featMat32, 
+                      featMaskMat2):
         
-        self.costFineMat *= 0
-        self.costCoarseMat *= 0
+        self.costMat *= 0
         
         # fine cost matrix
         block = (8, 8)
-        grid = (int(self.costFineWidth/block[0]), int(self.costFineHeight/block[1]))
+        grid = (int(self.costWidth/block[0]), int(self.costHeight/block[1]))
     
         # call kernel
-        cp_costFromPoiMatrix(grid, block,  \
-                   (self.costFineMat,  
-                    poiMat11,    
-                    poiMat21, 
-                    poiMat31, 
-                    poiMaskMat1,
-                    poiMat12, 
-                    poiMat22, 
-                    poiMat32, 
-                    poiMaskMat2,
-                    cp.int32(self.costFineHeight),
-                    cp.int32(self.costFineWidth),
-                    cp.int32(self.scale)) )
+        cp_costFromFeatMatrix(grid, block,  \
+                   (self.costMat,  
+                    featMat11,    
+                    featMat21, 
+                    featMat31, 
+                    featMaskMat1,
+                    featMat12, 
+                    featMat22, 
+                    featMat32, 
+                    featMaskMat2,
+                    self.costHeight,
+                    self.costWidth,
+                    self.featLength) )
             
-        # use block averaging to compute coarse cost mat 
-        block = (8, 8)
-        grid = (int(self.nFeatures/block[0]), int(self.nFeatures/block[1]))
-    
-        # call kernel
-        cp_sumCostMatrix(grid, block,  \
-                   (self.costCoarseMat,   
-                    self.costFineMat,    
-                    cp.int32(self.costCoarseHeight),
-                    cp.int32(self.costCoarseWidth),
-                    cp.int32(self.costFineHeight),
-                    cp.int32(self.costFineWidth),
-                    cp.int32(self.scale)) )
  
             
 #------------------------------------------------------------------------------            
-# functions
+#  helper functions
+#------------------------------------------------------------------------------
 
-# creates a tall rectangular matrix of vertically stacked squares
-# each sqaure is a scale X scale box around a feature point coordinate from a 2d image
-# poiMatrix shape: (nFeatures*scale) X scale
-# done in batches of 3, for rgb, or xyz
-def generatePointsOfInterestMat(poiMat1, \
-                                poiMat2, \
-                                poiMat3, \
-                                poiMaskMat, \
-                                imgMat1, \
-                                imgMat2, \
-                                imgMat3, \
-                                maskMat, \
-                                imgPixelIdx, \
-                                scale,
-                                offset):
+
+def generateFeaturetMat(featMat1, \
+                        featMat2, \
+                        featMat3, \
+                        featMaskMat, \
+                        imgMat1, \
+                        imgMat2, \
+                        imgMat3, \
+                        maskMat, \
+                        imgPixelIdx, \
+                        scale,
+                        offset):
     
     # point of interest matrix is shape [nFeatures*scale, scale]
-    poiMat1 *= 0
-    poiMat2 *= 0
-    poiMat3 *= 0
+    featMat1 *= 0
+    featMat2 *= 0
+    featMat3 *= 0
 
-    poiHeight, poiWidth = poiMat1.shape
+    featHeight, featWidth = featMat1.shape
     imgHeight, imgWidth = imgMat1.shape
     
     # Grid and block sizes
     block = (8, 8)
-    grid = ( np.ceil(poiWidth/block[0]).astype(int), np.ceil(poiHeight/block[1]).astype(int) )
+    grid = ( np.ceil(featWidth/block[0]).astype(int), np.ceil(featHeight/block[1]).astype(int) )
 
     # Call kernel
-    cp_poiMatrix(grid, block,  \
-               (poiMat1, 
-                poiMat2, 
-                poiMat3, 
-                poiMaskMat,
+    cp_featMatrix(grid, block,  \
+               (featMat1, 
+                featMat2, 
+                featMat3, 
+                featMaskMat,
                 imgMat1,
                 imgMat2,
                 imgMat3,
                 maskMat,
                 imgPixelIdx[0,:], 
                 imgPixelIdx[1,:], 
-                cp.int32(poiHeight),
-                cp.int32(poiWidth),
-                cp.int32(imgHeight),
-                cp.int32(imgWidth),
-                cp.int32(scale),
-                cp.int32(offset)) )  
+                featHeight,
+                featWidth,
+                imgHeight,
+                imgWidth,
+                scale,
+                offset) )  
         
 # creates a tall rectangular matrix of vertically stacked [x,y,z] vector rows
 # each vector is taken from a box around a set of feature point coordinate from a 2d image

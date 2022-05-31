@@ -76,7 +76,8 @@ def loadDataSet(calName, numpyName, folder):
             
             # mask tensor
             maskMat = np.full((height, width), True, dtype=bool)
-            tmp3 = np.logical_or((redTens[:,:,frame] + greenTens[:,:,frame] + blueTens[:,:,frame]) < 15, zMat < zMin_mm, zMat > zMax_mm )
+            #tmp3 = np.logical_or((redTens[:,:,frame] + greenTens[:,:,frame] + blueTens[:,:,frame]) < 2, zMat < zMin_mm, zMat > zMax_mm )
+            tmp3 = np.logical_or(zMat < zMin_mm, zMat > zMax_mm )
             maskMat[tmp3] = False
             maskTens[:,:,frame] = maskMat
         
