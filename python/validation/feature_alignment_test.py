@@ -15,7 +15,8 @@ import cv_functions as cvFun
 import harris_detector_functions_gpu as hd
 import cv_functions_gpu as cvGpu
 
-loadData = True
+load_data = False
+save_training_data = True
 plt.close('all')
 
 #------------------------------------------------------------------------------
@@ -27,6 +28,21 @@ def plot_feature(ax, featMats, idx, scale):
                     np.reshape(featMats['feat_gMat'][idx,:], (scale, scale)),
                     np.reshape(featMats['feat_bMat'][idx,:], (scale, scale))), axis = 2)
     ax.imshow(mat.get()/255)
+    
+def concat_features(featMats1, featMats2, idx, scale):
+
+    r_s = np.concatenate((np.reshape(featMats1['feat_rMat'][idx,:], (scale, scale)),
+                          np.reshape(featMats2['feat_rMat'][idx,:], (scale, scale))), axis = 1)    
+                          
+    g_s = np.concatenate((np.reshape(featMats1['feat_gMat'][idx,:], (scale, scale)),
+                          np.reshape(featMats2['feat_gMat'][idx,:], (scale, scale))), axis = 1) 
+
+    b_s = np.concatenate((np.reshape(featMats1['feat_bMat'][idx,:], (scale, scale)),
+                          np.reshape(featMats2['feat_bMat'][idx,:], (scale, scale))), axis = 1)    
+                       
+    imgMat = np.stack((r_s, g_s, b_s), axis = 2)
+    torch_tensor = np.stack((r_s, g_s, b_s), axis = 0)
+    return imgMat.get(), torch_tensor.get()
     
 def get_frame_data(frame_id, redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens):
     
@@ -88,20 +104,21 @@ class localMinimizer():
         
         # if the quadratic is positive definite, and the center point is the minimum,
         # sovlve for the minimum of the quadratic
-        print('eigen value ratio')
-        print(eig1 / eig2)
+        #print('eigen value ratio')
+        #print(eig1 / eig2)
         if (eig1 > 0 and eig2 > 0):
             
             Btmp = np.array([-K[0], -K[1]])
             Atmp = np.array([[2*K[3], K[2]], [K[2], 2*K[4]]])
-            
             minLoc = np.linalg.solve(Atmp, Btmp)
+            valid = True
      
         # otherwise, chose the minumum sample as the next step       
         else:
             print('warning not positive definite')
             minLoc = np.array([0, 0])
-        return  minLoc
+            valid = False
+        return  minLoc[0], minLoc[1], valid
             
         
 def computeMinCostLocation(C):
@@ -119,11 +136,8 @@ def computeMinCostLocation(C):
     if (x_min-1 > 0) and (x_min+1 < w) and (y_min-1 > 0) and (y_min+1 < h):
     
         C_min = C[y_min-1:y_min+2, x_min-1:x_min+2]
-        print(C_min)
         localMinObj = localMinimizer()
-        dx, dy = localMinObj.find_min(C_min)
-        
-        valid = True
+        dx, dy, valid = localMinObj.find_min(C_min)
         
     else:
         y_min = y_mid
@@ -143,15 +157,14 @@ def computeMinCostLocation(C):
 #------------------------------------------------------------------------------
 # data configuration and loading
 #------------------------------------------------------------------------------
-if loadData or 'redTens' not in locals():
-     # calibration data
-    folder = '../../data/'
-    calName = folder + 'calibration.h5'
-    numpyName = folder + 'rawData.npz'
-         
-    # video data
+data_folder = '../../data/'
+calName = data_folder + 'calibration.h5'
+numpyName = data_folder + 'rawData.npz'
+    
+if load_data or 'redTens' not in locals():
+    # video and calibration data
     start = time.time()
-    redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens = vid.loadDataSet(calName, numpyName, folder)
+    redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens = vid.loadDataSet(calName, numpyName, data_folder)
     print('timer:', time.time() - start)
     
 # load two different frames
@@ -161,22 +174,15 @@ print('number of frames: ', nFrms)
 # create object for handling CV functions
 myCv = cvFun.myCv(height, width) 
 
-# get frame 1 mats
-frame1 = 30
-frame2 = frame1 + 8
 
-gpuDat1, rgbMat1 = get_frame_data(frame1, redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens)
-gpuDat2, rgbMat2 = get_frame_data(frame2, redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens)
-
-height, width = gpuDat1['maskMat'].shape
-    
 #------------------------------------------------------------------------------
-# course feature matching
+# feature matching
 #------------------------------------------------------------------------------
-
 cornerScale = 4
 matchScale = 15
 nFeatures = 128
+# limit for how far out of alignment a feature pair can be to be considered a training sample
+pixel_dist_thresh = 7 
 
 # corner detector object 
 #cornerObjGpu = fdgpu.corner_detector_class(height, width, cornerScale, nFeatures)
@@ -185,40 +191,137 @@ cornerObjGpu = hd.HarrisDetectorGpu(height, width, cornerScale, nFeatures)
 # matching object
 matchObjGpu = fmgpu.feature_matching_class(height, width, nFeatures, nFeatures, matchScale)
 
-# corner points
-cornerPointIdx1_gpu = cp.zeros((2,nFeatures), dtype = cp.int32)
-cornerPointIdx2_gpu = cp.zeros((2,nFeatures), dtype = cp.int32)
-cornerObjGpu.findCornerPoints(cornerPointIdx1_gpu, gpuDat1['greyMat'], gpuDat1['maskMat'].astype(cp.float32))
-cornerObjGpu.findCornerPoints(cornerPointIdx2_gpu, gpuDat2['greyMat'], gpuDat2['maskMat'].astype(cp.float32))
+# dimension of box the check for best match in
+d_box = matchScale
+nFeatures1 = 1
+nFeatures2 = d_box * d_box
+alignObjGpu = fmgpu.feature_matching_class(height, width, nFeatures1, nFeatures2, matchScale)
 
-# find matches
-matchObjGpu.set_img1_features(gpuDat1['rMat'], gpuDat1['gMat'], gpuDat1['bMat'], gpuDat1['maskMat'], cornerPointIdx1_gpu)
-matchObjGpu.set_img2_features(gpuDat2['rMat'], gpuDat2['gMat'], gpuDat2['bMat'], gpuDat2['maskMat'], cornerPointIdx2_gpu)
-cornerMatchedIdx1, cornerMatchedIdx2 = matchObjGpu.computeFeatureMatches()
+# final outputs for training
+X_feature_data_list = []
+y_labels_list = []
 
-# re-set the features to be matched pairs
-matchObjGpu.set_img1_features(gpuDat1['rMat'], gpuDat1['gMat'], gpuDat1['bMat'], gpuDat1['maskMat'], cornerMatchedIdx1)
-matchObjGpu.set_img2_features(gpuDat2['rMat'], gpuDat2['gMat'], gpuDat2['bMat'], gpuDat2['maskMat'], cornerMatchedIdx2)
+# get frame 1 mats
+#frame1 = 30
+#frame2 = frame1 + 8
+step = 5
+for frame1 in range(0, nFrms-step):
+    frame2 = frame1 + step
+    print(frame1)
 
-cornerMatchIdx1 = cornerMatchedIdx1.get()
-cornerMatchIdx2 = cornerMatchedIdx2.get()
-#cornerMatchIdx1 = cornerPointIdx1_gpu.get()
-#cornerMatchIdx2 = cornerPointIdx2_gpu.get()
-
-n_matches = cornerMatchIdx1.shape[1]
-print('number of frames matched:')
-print(n_matches)
-
+    gpuDat1, rgbMat1 = get_frame_data(frame1, redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens)
+    gpuDat2, rgbMat2 = get_frame_data(frame2, redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens)
+    
+    height, width = gpuDat1['maskMat'].shape
+    
+    #--------------------------------------------------------------------------
+    # course matching
+    # corner points
+    cornerPointIdx1_gpu = cp.zeros((2,nFeatures), dtype = cp.int32)
+    cornerPointIdx2_gpu = cp.zeros((2,nFeatures), dtype = cp.int32)
+    cornerObjGpu.findCornerPoints(cornerPointIdx1_gpu, gpuDat1['greyMat'], gpuDat1['maskMat'].astype(cp.float32))
+    cornerObjGpu.findCornerPoints(cornerPointIdx2_gpu, gpuDat2['greyMat'], gpuDat2['maskMat'].astype(cp.float32))
+    
+    # find matches
+    matchObjGpu.set_img1_features(gpuDat1['rMat'], gpuDat1['gMat'], gpuDat1['bMat'], gpuDat1['maskMat'], cornerPointIdx1_gpu)
+    matchObjGpu.set_img2_features(gpuDat2['rMat'], gpuDat2['gMat'], gpuDat2['bMat'], gpuDat2['maskMat'], cornerPointIdx2_gpu)
+    cornerMatchedIdx1, cornerMatchedIdx2 = matchObjGpu.computeFeatureMatches()
+    
+    # re-set the features to be matched pairs
+    matchObjGpu.set_img1_features(gpuDat1['rMat'], gpuDat1['gMat'], gpuDat1['bMat'], gpuDat1['maskMat'], cornerMatchedIdx1)
+    matchObjGpu.set_img2_features(gpuDat2['rMat'], gpuDat2['gMat'], gpuDat2['bMat'], gpuDat2['maskMat'], cornerMatchedIdx2)
+    
+    cornerMatchIdx1 = cornerMatchedIdx1.get()
+    cornerMatchIdx2 = cornerMatchedIdx2.get()
+    #cornerMatchIdx1 = cornerPointIdx1_gpu.get()
+    #cornerMatchIdx2 = cornerPointIdx2_gpu.get()
+    
+    n_matches = cornerMatchIdx1.shape[1]
+    print(f'number of features matched: {n_matches}')
+    
+    #--------------------------------------------------------------------------
+    # fine feature alignment
+    cornerMatchIdx1_aligned = np.copy(cornerMatchIdx1)
+    
+    for feat_id in range(n_matches):
+        
+        corner1_id = cornerMatchIdx1[:,feat_id][:,None]
+        corner2_id = cornerMatchIdx2[:,feat_id][:,None]
+        
+        offset = np.int32((d_box-1)/2)
+        offset_x, offset_y = np.meshgrid(np.arange(0, d_box), np.arange(0, d_box))
+        offset_x -= offset
+        offset_y -= offset
+        
+        offset_vec = np.stack((offset_x.flatten(), offset_y.flatten()))
+        offset_id = corner2_id + offset_vec 
+        
+        corner1_id = cp.array(corner1_id, dtype = cp.int32)
+        offset_id = cp.array(offset_id, dtype = cp.int32)
+        
+        alignObjGpu.set_img1_features(gpuDat1['rMat'], \
+                                      gpuDat1['gMat'], \
+                                      gpuDat1['bMat'], \
+                                      gpuDat1['maskMat'], \
+                                      corner1_id)
+            
+        alignObjGpu.set_img2_features(  gpuDat2['rMat'], \
+                                        gpuDat2['gMat'], \
+                                        gpuDat2['bMat'], \
+                                        gpuDat2['maskMat'], \
+                                        offset_id)
+              
+        _, _ = alignObjGpu.computeFeatureMatches()
+        c2 = alignObjGpu.costMat.get()
+        C_align = np.reshape(c2, (d_box, d_box), order='F')
+        
+        x_min_loc, y_min_loc, dx_min, dy_min, valid  = computeMinCostLocation(C_align)
+        #print(f'delta x pixels: {dx_min}')
+        #print(f'delta y pixels: {dy_min}')
+        #print(f'valid sample: {valid}')
+        
+        cornerMatchIdx1_aligned[0,feat_id] = cornerMatchIdx1_aligned[0,feat_id] - np.round(dy_min).astype(int)
+        cornerMatchIdx1_aligned[1,feat_id] = cornerMatchIdx1_aligned[1,feat_id] - np.round(dx_min).astype(int)
+        
+        featureImg, torch_tensor = concat_features(matchObjGpu.im1_featMats, matchObjGpu.im2_featMats, feat_id, matchScale)
+        
+        if valid and (np.sqrt(dx_min**2 + dy_min**2) < pixel_dist_thresh):
+            X_feature_data_list.append(torch_tensor)
+            y_labels_list.append(np.array([dx_min, dy_min]))
+        
+        if False:
+            plt.figure()
+            plt.imshow(featureImg/255)
+            
+            fig, ax = plt.subplots(1,3)
+            plot_feature(ax[0], matchObjGpu.im1_featMats, feat_id, matchScale)
+            plot_feature(ax[1], matchObjGpu.im2_featMats, feat_id, matchScale)
+            ax[2].imshow(C_align)
+            ax[2].plot(x_min_loc, y_min_loc, 'ro')
+      
+        
+y_labels_list       = np.array(y_labels_list)
+X_feature_data_list = np.array(X_feature_data_list)            
+if save_training_data:
+    np.savez(data_folder + 'training_data', 
+             y_labels_list       = y_labels_list, 
+             X_feature_data_list = X_feature_data_list )
+  
+#------------------------------------------------------------------------------
 # plotting 
+#------------------------------------------------------------------------------       
+
 rgb1Match = np.copy(rgbMat1)
 rgb2Match = np.copy(rgbMat2)
+rgb3Match = np.copy(rgbMat1)
 
 for ii in range(cornerMatchIdx1.shape[1]):
     
     color = 255 * np.random.rand(3)
     fd.drawBox(rgb1Match, cornerMatchIdx1[0, ii], cornerMatchIdx1[1, ii], 12, color.astype(np.ubyte))
     fd.drawBox(rgb2Match, cornerMatchIdx2[0, ii], cornerMatchIdx2[1, ii], 12, color.astype(np.ubyte))
-    
+    fd.drawBox(rgb3Match, cornerMatchIdx1_aligned[0, ii], cornerMatchIdx1_aligned[1, ii], 12, color.astype(np.ubyte))
+
 plt.figure('rgb  frame 1 interest points')
 plt.title('rgb  frame 1 interest points')
 plt.imshow(rgb1Match)
@@ -226,75 +329,15 @@ plt.imshow(rgb1Match)
 plt.figure('rgb  frame 2 interest points')
 plt.title('rgb  frame 2 interest points')
 plt.imshow(rgb2Match)
-
-
-#------------------------------------------------------------------------------
-# fine feature alignment
-#------------------------------------------------------------------------------
-
-# dimension of box the check for best match in
-d_box = matchScale
-nFeatures1 = 1
-nFeatures2 = d_box * d_box
-feat_id = 15
-
-alignObjGpu = fmgpu.feature_matching_class(height, width, nFeatures1, nFeatures2, matchScale)
-
-for feat_id in range(n_matches):
-    corner1_id = cornerMatchIdx1[:,feat_id][:,None]
-    corner2_id = cornerMatchIdx2[:,feat_id][:,None]
-    
-    offset = np.int32((d_box-1)/2)
-    offset_x, offset_y = np.meshgrid(np.arange(0, d_box), np.arange(0, d_box))
-    offset_x -= offset
-    offset_y -= offset
-    
-    offset_vec = np.stack((offset_x.flatten(), offset_y.flatten()))
-    offset_id = corner2_id + offset_vec 
-    
-    corner1_id = cp.array(corner1_id, dtype = cp.int32)
-    offset_id = cp.array(offset_id, dtype = cp.int32)
-    
-    alignObjGpu.set_img1_features(gpuDat1['rMat'], \
-                                  gpuDat1['gMat'], \
-                                  gpuDat1['bMat'], \
-                                  gpuDat1['maskMat'], \
-                                  corner1_id)
-        
-    alignObjGpu.set_img2_features(  gpuDat2['rMat'], \
-                                    gpuDat2['gMat'], \
-                                    gpuDat2['bMat'], \
-                                    gpuDat2['maskMat'], \
-                                    offset_id)
-          
-    _, _ = alignObjGpu.computeFeatureMatches()
-    c2 = alignObjGpu.costMat.get()
-    C_align = np.reshape(c2, (d_box, d_box), order='F')
-    
-    x_min_loc, y_min_loc, dx_min, dy_min, valid  = computeMinCostLocation(C_align)
-    print(f'delta x pixels: {dx_min}')
-    print(f'delta y pixels: {dy_min}')
-    print(f'valid sample: {valid}')
-    
-    cornerMatchIdx1[0,feat_id] = cornerMatchIdx1[0,feat_id] - np.round(dy_min).astype(int)
-    cornerMatchIdx1[1,feat_id] = cornerMatchIdx1[1,feat_id] - np.round(dx_min).astype(int)
-    
-    if False:
-        fig, ax = plt.subplots(1,3)
-        plot_feature(ax[0], matchObjGpu.im1_featMats, feat_id, matchScale)
-        plot_feature(ax[1], matchObjGpu.im2_featMats, feat_id, matchScale)
-        ax[2].imshow(C_align)
-        ax[2].plot(x_min_loc, y_min_loc, 'ro')
-        
-
-# plotting 
-rgb1Match = np.copy(rgbMat1)
-for ii in range(cornerMatchIdx1.shape[1]):
-    
-    color = 255 * np.random.rand(3)
-    fd.drawBox(rgb1Match, cornerMatchIdx1[0, ii], cornerMatchIdx1[1, ii], 12, color.astype(np.ubyte))
     
 plt.figure('rgb  frame 1 interest points aligned')
 plt.title('rgb  frame 1 interest points aligned')
-plt.imshow(rgb1Match)
+plt.imshow(rgb3Match)
 
+plt.figure()
+plt.hist(y_labels_list[:,0], bins = 100)
+plt.title('pixel dx distribution')
+
+plt.figure()
+plt.hist(y_labels_list[:,1], bins = 100)
+plt.title('pixel dy distribution')
