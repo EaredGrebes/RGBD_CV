@@ -1,5 +1,6 @@
 import numpy as np
 import cupy as cp
+import cv_functions_gpu as cvGpu
 
 """----------------------------------------------------------------------------
                          ~~Cuda Kernel functions~~                          """
@@ -241,16 +242,9 @@ class HarrisDetectorGpu:
         self.width = width
         self.c = c
         self.nMax = nMax
-        
-        gK = np.array([[1, 4,  7,  4,  1],
-                       [4, 16, 26, 16, 4],
-                       [7, 26, 41, 26, 7],
-                       [4, 16, 26, 16, 4],
-                       [1, 4,  7,  4,  1]]); 
-        self.filt = cp.array( gK.flatten() / np.sum(gK) ).astype(cp.float32)
-        print(self.filt)
 
         # working variables
+        self.gaussianBlurObj = cvGpu.gaussianBlur()
         self.blurMat   = cp.zeros((height, width), dtype = cp.float32)
         
         self.gradxxMat = cp.zeros((height, width), dtype = cp.float32)
@@ -270,15 +264,8 @@ class HarrisDetectorGpu:
         self.pixelXVec = cp.zeros(height_c * width_c, dtype = cp.int32)
         self.pixelYVec = cp.zeros(height_c * width_c, dtype = cp.int32)
         
-    def detect_corners(self, cornerPointIdx, imgMat, maskMat):
+    def findCornerPoints(self, cornerPointIdx, imgMat, maskMat):
         
-        blur(self.blurMat, \
-             imgMat, \
-             maskMat, \
-             self.filt, \
-             self.height, \
-             self.width)
-                
         grad(self.gradxxMat, \
              self.gradyyMat, \
              self.gradxyMat, \
@@ -287,26 +274,9 @@ class HarrisDetectorGpu:
              self.height, \
              self.width)            
 
-        blur(self.gradxxBlurMat, \
-             self.gradxxMat, \
-             maskMat, \
-             self.filt, \
-             self.height, \
-             self.width)
-            
-        blur(self.gradyyBlurMat, \
-             self.gradyyMat, \
-             maskMat, \
-             self.filt, \
-             self.height, \
-             self.width)
-
-        blur(self.gradxyBlurMat, \
-             self.gradxyMat, \
-             maskMat, \
-             self.filt, \
-             self.height, \
-             self.width)            
+        self.gaussianBlurObj.blurImg(self.gradxxBlurMat, self.gradxxMat, maskMat)
+        self.gaussianBlurObj.blurImg(self.gradyyBlurMat, self.gradyyMat, maskMat)
+        self.gaussianBlurObj.blurImg(self.gradxyBlurMat, self.gradxyMat, maskMat)
                 
         corner(self.cornerMat, \
                self.gradxxBlurMat, \

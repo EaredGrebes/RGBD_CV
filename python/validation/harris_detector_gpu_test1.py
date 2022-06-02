@@ -11,7 +11,7 @@ import video_functions as vid
 import harris_detector_functions_gpu as hd
 import feature_detection_functions as fd
 
-loadData = False
+loadData = True
 
 #------------------------------------------------------------------------------
 # data configuration and loading
@@ -45,7 +45,8 @@ rgbMat, xyzMat, maskMat = vid.getFrameMats(redTens, greenTens, blueTens, xTens, 
 # GPU implementation testing
 
 #  harris detector
-hdObj = hd.HarrisDetectorGpu(height, width, 16, 128)
+nFeatures = 128
+hdObj = hd.HarrisDetectorGpu(height, width, 8, nFeatures)
 
 # inputs
 greyMat = hd.rgb_to_grey(rgbMat.astype(float))
@@ -58,11 +59,12 @@ greyBlurMat_gpu = cp.zeros((height, width), dtype = cp.float32)
 xgradMat_gpu = cp.zeros((height, width), dtype = cp.float32)
 ygradMat_gpu = cp.zeros((height, width), dtype = cp.float32)
 
+# outputs
+cornerPointIdx_gpu = cp.zeros((2,nFeatures), dtype = cp.int32)
+
 start = time.time()
-
-cornerPointIdx = hdObj.detect_corners(greyMat_gpu, maskMat_gpu).astype(int)
-
-
+hdObj.findCornerPoints(cornerPointIdx_gpu, greyMat_gpu, maskMat_gpu)
+cornerPointIdx = cornerPointIdx_gpu.get()
 print('timer:', time.time() - start)
     
 

@@ -917,7 +917,7 @@ void fillMissingColorData(cv::cuda::GpuMat colorInDepthMat,       // outputs
     dim3 grid(width / block.x, height / block.y, 1);
 
     int thresh;
-    thresh = 17;
+    thresh = 1;
     fillInColorKernel<<<grid, block>>>( clrInDepthMatBlur_r,  // outputs
                                         clrInDepthMatBlur_g,
                                         clrInDepthMatBlur_b,

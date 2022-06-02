@@ -178,9 +178,15 @@ def computeMatchCost(rgb1Mat, rgb2Mat, mask1Mat, mask2Mat, id2dMax1, id2dMax2):
 
 #--------------------------------------------------------------------------
 def drawBox(rgbMat, x, y, l, c):
-
-    rgbMat[x-l:x+l, y-l, :] = c
-    rgbMat[x-l:x+l, y+l, :] = c
     
-    rgbMat[x-l, y-l:y+l, :] = c
-    rgbMat[x+l, y-l:y+l, :] = c
+    h, w, _ = rgbMat.shape
+    xm = np.clip(x-l, 0, h-1)
+    xp = np.clip(x+l, 0, h-1)
+    ym = np.clip(y-l, 0, w-1)
+    yp = np.clip(y+l, 0, w-1)
+
+    rgbMat[xm:xp, ym, :] = c
+    rgbMat[xm:xp, yp, :] = c
+    
+    rgbMat[xm, ym:yp, :] = c
+    rgbMat[xp, ym:yp, :] = c

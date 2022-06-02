@@ -21,6 +21,7 @@ void costMatrix(float* costMat,     // outputs
  
     int iCol = blockIdx.x * blockDim.x  + threadIdx.x;
     int iRow = blockIdx.y * blockDim.y  + threadIdx.y;
+    
     int img1_feature_index = iRow;
     int img2_feature_index = iCol;
     float nFeatures = 0.0;
@@ -39,13 +40,16 @@ void costMatrix(float* costMat,     // outputs
                 e2 = featMat21[iRow*featLength + f] - featMat22[iCol*featLength + f];
                 e3 = featMat31[iRow*featLength + f] - featMat32[iCol*featLength + f];
                 
-                featSum += e1*e1 + e2*e2 + e3*e3;
+                //featSum += e1*e1 + e2*e2 + e3*e3;
+                featSum += fabs(e1) + fabs(e2) + fabs(e3);
                 nFeatures += 1.0;
             }
         }
                 
         if (nFeatures > 0.0) {   
             costMat[iRow*costWidth + iCol] = featSum / nFeatures;
+        } else {
+            costMat[iRow*costWidth + iCol] = 666.6;
         }
     }
 }
@@ -84,9 +88,9 @@ void featMatrix(float* featMat1,  // outputs
         int img_x = imgPixelId_xVec[img_feature_index] + img_xOffset - offset;
         int img_y = imgPixelId_yVec[img_feature_index] + img_yOffset - offset;
         
-        float rCenter = imgMat1[imgPixelId_xVec[iRow]*imgWidth + imgPixelId_yVec[iRow]];
-        float gCenter = imgMat2[imgPixelId_xVec[iRow]*imgWidth + imgPixelId_yVec[iRow]];
-        float bCenter = imgMat3[imgPixelId_xVec[iRow]*imgWidth + imgPixelId_yVec[iRow]];
+        //float rCenter = imgMat1[imgPixelId_xVec[iRow]*imgWidth + imgPixelId_yVec[iRow]];
+        //float gCenter = imgMat2[imgPixelId_xVec[iRow]*imgWidth + imgPixelId_yVec[iRow]];
+        //float bCenter = imgMat3[imgPixelId_xVec[iRow]*imgWidth + imgPixelId_yVec[iRow]];
         
         if ( (img_x >= 0) && (img_x < imgHeight) && (img_y >= 0) && (img_y < imgWidth) ) { 
                 
@@ -101,80 +105,29 @@ void featMatrix(float* featMat1,  // outputs
 
 
 #------------------------------------------------------------------------------
-cp_xyzMatrix = cp.RawKernel(r'''
-extern "C" __global__
-void xyzMatrix(float* xyzVecMat,  // outputs
-               float* greyVec,
-               float* xMat,       // inputs
-               float* yMat,
-               float* zMat, 
-               float* greyMat,
-               bool*  maskMat,
-               int* imgPixelId_xVec, 
-               int* imgPixelId_yVec,   
-               int xyzHeight, 
-               int xyzWidth, 
-               int imgHeight,
-               int imgWidth,
-               int scale,
-               int scale2,
-               int offset,
-               int nPoints) {
-
-    int iRow = blockIdx.x * blockDim.x  + threadIdx.x;
-  
-    if (iRow < xyzHeight) {
-        
-        // every feature is composed of scale2 number of pixels
-        int img_feature_index = iRow / scale2;
-        
-        if (img_feature_index < nPoints) {
-        
-            // this is the pixel offset index for a particular feature
-            int img_Offset = iRow - (img_feature_index * scale2);
-            
-            // this is the pixel offset in image x,y coordinates
-            int img_xOffset = img_Offset / scale;
-            int img_yOffset = img_Offset - (img_xOffset * scale);
-            
-            int img_x = imgPixelId_xVec[img_feature_index] + img_xOffset - offset;
-            int img_y = imgPixelId_yVec[img_feature_index] + img_yOffset - offset;
-            
-            if ( (img_x >= 0) && (img_x < imgHeight) && (img_y >= 0) && (img_y < imgWidth) && (maskMat[img_x*imgWidth + img_y]) ) { 
-                    
-                xyzVecMat[iRow*xyzWidth + 0] = xMat[img_x*imgWidth + img_y];
-                xyzVecMat[iRow*xyzWidth + 1] = yMat[img_x*imgWidth + img_y];
-                xyzVecMat[iRow*xyzWidth + 2] = zMat[img_x*imgWidth + img_y];
-                
-                greyVec[iRow] = greyMat[img_x*imgWidth + img_y];
-            }
-        }
-    }
-}
-''', 'xyzMatrix')
-
-
-#------------------------------------------------------------------------------
 # main class
 #------------------------------------------------------------------------------
 class feature_matching_class:
 
-    def __init__(self, imHeight, imgWidth, nFeatures, scale): 
+    def __init__(self, imHeight, imgWidth, nFeatures1, nFeatures2, scale): 
         
         # parameters
         self.imgHeight = imHeight
         self.imgWidth = imgWidth
-        self.nFeatures = nFeatures
+        self.nFeatures1 = nFeatures1
+        self.nFeatures2 = nFeatures2
         self.scale = scale
-        self.offset = np.int32(1 + scale/2)
+        #self.offset = np.int32(1 + scale/2)
+        self.offset = np.int32((scale-1)/2)
         self.featLength = scale*scale
-        self.costHeight = nFeatures 
-        self.costWidth = nFeatures 
+        self.costHeight = nFeatures1
+        self.costWidth = nFeatures2 
+        self.dist_thresh2 = 40**2
         
         # working variables
-        self.im1_featMats = self.generateFeatureMats(self.nFeatures, self.featLength)
-        self.im2_featMats = self.generateFeatureMats(self.nFeatures, self.featLength)
-        self.costMat = cp.zeros((self.nFeatures, self.nFeatures), dtype = cp.float32)
+        self.im1_featMats = self.generateFeatureMats(self.nFeatures1, self.featLength)
+        self.im2_featMats = self.generateFeatureMats(self.nFeatures2, self.featLength)
+        self.costMat = cp.zeros((self.costHeight, self.costWidth), dtype = cp.float32)
         
         
     def generateFeatureMats(self, nFeatures, featLength):
@@ -224,17 +177,23 @@ class feature_matching_class:
                             self.im2_featMats['feat_maskMat'])
 
         costMat = self.costMat.get()
-
         colMin = costMat.argmin(axis = 0)
         rowMin = costMat.argmin(axis = 1)
 
-        idxMatch = rowMin[colMin] == np.arange(self.nFeatures)
+        idxMatch = rowMin[colMin] == np.arange(self.nFeatures1)
 
-        idxMatchImg2 = np.arange(self.nFeatures)[idxMatch]
+        idxMatchImg2 = np.arange(self.nFeatures2)[idxMatch]
         idxMatchImg1 = colMin[idxMatchImg2]
         
         cornerMatchedIdx1 = self.im1_featMats['imgFeatureIdx'][:, idxMatchImg1]
         cornerMatchedIdx2 = self.im2_featMats['imgFeatureIdx'][:, idxMatchImg2]
+        
+        # remove points whos matched pixel distances are large
+        err = cornerMatchedIdx1 - cornerMatchedIdx2
+        matchPixelDist = np.sum(err * err, axis = 0)
+
+        cornerMatchedIdx1 = cornerMatchedIdx1[:,matchPixelDist < self.dist_thresh2]
+        cornerMatchedIdx2 = cornerMatchedIdx2[:,matchPixelDist < self.dist_thresh2]
         
         return cornerMatchedIdx1, cornerMatchedIdx2
 
@@ -253,8 +212,8 @@ class feature_matching_class:
         
         # fine cost matrix
         block = (8, 8)
-        grid = (int(self.costWidth/block[0]), int(self.costHeight/block[1]))
-    
+        grid = ( np.ceil(self.costWidth/block[0]).astype(int), np.ceil(self.costHeight/block[1]).astype(int) )
+        
         # call kernel
         cp_costFromFeatMatrix(grid, block,  \
                    (self.costMat,  
@@ -269,14 +228,10 @@ class feature_matching_class:
                     self.costHeight,
                     self.costWidth,
                     self.featLength) )
-            
- 
-            
+                    
 #------------------------------------------------------------------------------            
 #  helper functions
 #------------------------------------------------------------------------------
-
-
 def generateFeaturetMat(featMat1, \
                         featMat2, \
                         featMat3, \
@@ -319,47 +274,4 @@ def generateFeaturetMat(featMat1, \
                 imgWidth,
                 scale,
                 offset) )  
-        
-# creates a tall rectangular matrix of vertically stacked [x,y,z] vector rows
-# each vector is taken from a box around a set of feature point coordinate from a 2d image
-def generateXYZVecMat(xyzVecMat, \
-                      greyVec,   \
-                      xMat, \
-                      yMat, \
-                      zMat, \
-                      greyMat, \
-                      maskMat, \
-                      imgPixelIdx, \
-                      scale,       \
-                      offset):
-    
-    # point of interest matrix is shape [nFeatures*scale, scale]
-    xyzVecMat *= 0
-
-    xyzHeight, xyzWidth = xyzVecMat.shape
-    imgHeight, imgWidth = xMat.shape
-    nPoints = imgPixelIdx.shape[1]
-
-    # Grid and block sizes
-    block = (16,)
-    grid = ( np.ceil(xyzHeight/block[0]).astype(int),  )
-
-    # Call kernel
-    cp_xyzMatrix(grid, block,  \
-               (xyzVecMat, 
-                greyVec,
-                xMat, 
-                yMat,
-                zMat,
-                greyMat,
-                maskMat,
-                imgPixelIdx[0,:], 
-                imgPixelIdx[1,:], 
-                cp.int32(xyzHeight),
-                cp.int32(xyzWidth),
-                cp.int32(imgHeight),
-                cp.int32(imgWidth),
-                cp.int32(scale),
-                cp.int32(scale*scale),
-                cp.int32(offset),
-                cp.int32(nPoints)) )   
+         

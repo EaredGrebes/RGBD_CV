@@ -12,6 +12,7 @@ import feature_detection_functions as fd
 import feature_detection_functions_gpu as fdgpu
 import feature_matching_functions_gpu as fmgpu
 import cv_functions as cvFun
+import harris_detector_functions_gpu as hd
 
 loadData = False
  
@@ -40,11 +41,11 @@ print('number of frames: ', nFrms)
 myCv = cvFun.myCv(height, width) 
 
 # get frame 1 mats
-frame1 = 220
+frame1 = 20
 rgbMat1, xyzMat1, maskMat1 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame1)
 greyMat1 = cvFun.rgbToGreyMat(rgbMat1).astype(int) 
 
-frame2 = frame1 + 1
+frame2 = frame1 + 3
 rgbMat2, xyzMat2, maskMat2 = vid.getFrameMats(redTens, greenTens, blueTens, xTens, yTens, zTens, maskTens, frame2)
 greyMat1 = cvFun.rgbToGreyMat(rgbMat1).astype(int) 
 
@@ -52,8 +53,8 @@ height, width = maskMat1.shape
     
 #------------------------------------------------------------------------------
 # GPU implementation testing
-cornerScale = 8
-matchScale = 13
+cornerScale = 4
+matchScale = 10
 nFeatures = 128
 
 # inputs
@@ -70,10 +71,11 @@ greyMat2_gpu = fdgpu.rgbToGreyMat(rMat2_gpu, gMat2_gpu, bMat2_gpu)
 maskMat2_gpu = cp.array(maskMat2, dtype = bool)
 
 # corner detector object 
-cornerObjGpu = fdgpu.corner_detector_class(height, width, cornerScale, nFeatures)
+#cornerObjGpu = fdgpu.corner_detector_class(height, width, cornerScale, nFeatures)
+cornerObjGpu = hd.HarrisDetectorGpu(height, width, cornerScale, nFeatures)
 
 # matching object
-matchObjGpu = fmgpu.feature_matching_class(height, width, nFeatures, matchScale)
+matchObjGpu = fmgpu.feature_matching_class(height, width, nFeatures, nFeatures, matchScale)
 
 # corner points
 cornerPointIdx1_gpu = cp.zeros((2,nFeatures), dtype = cp.int32)
@@ -81,10 +83,10 @@ cornerPointIdx2_gpu = cp.zeros((2,nFeatures), dtype = cp.int32)
 
 # previous corner points
 start = time.time()
-cornerObjGpu.findCornerPoints(cornerPointIdx1_gpu, greyMat1_gpu, maskMat1_gpu)
+cornerObjGpu.findCornerPoints(cornerPointIdx1_gpu, greyMat1_gpu, maskMat1_gpu.astype(cp.float32))
 
 # current corner points
-cornerObjGpu.findCornerPoints(cornerPointIdx2_gpu, greyMat2_gpu, maskMat2_gpu)
+cornerObjGpu.findCornerPoints(cornerPointIdx2_gpu, greyMat2_gpu, maskMat2_gpu.astype(cp.float32))
 
 matchObjGpu.set_img1_features(rMat1_gpu, gMat1_gpu, bMat1_gpu, maskMat1_gpu, cornerPointIdx1_gpu)
 matchObjGpu.set_img2_features(rMat2_gpu, gMat2_gpu, bMat2_gpu, maskMat2_gpu, cornerPointIdx2_gpu)
